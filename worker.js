@@ -1,0 +1,1141 @@
+/**
+ * 美股每日简报 — Cloudflare Workers 后端（PushPlus + Email 版）
+ * ---------------------------------------------------------------
+ * @author  Jerry Fang
+ * @project Jerry Fang 投研 · AI-Powered Stock Dashboard
+ * @built   Claude AI + Cloudflare Workers + Yahoo Finance
+ * ---------------------------------------------------------------
+ * PushPlus 使用 markdown，避免免费版 HTML 长度限制
+ * Resend 同步发送邮件
+ * 标题格式：美股日报5/20早上10:30
+ */
+
+const CACHE = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+const YAHOO_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'public, max-age=60',
+      ...CORS_HEADERS,
+    },
+  });
+}
+
+// ---------- Yahoo Chart API ----------
+async function fetchYahooChart(symbol) {
+  const cacheKey = symbol.toUpperCase();
+  const cached = CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+  const encoded = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=3mo&events=div%2Csplits`;
+  const resp = await fetch(url, { headers: YAHOO_HEADERS });
+  if (!resp.ok) throw new Error(`Yahoo ${resp.status} for ${symbol}`);
+  const raw = await resp.json();
+  if (raw.chart?.error) throw new Error(`Yahoo error: ${raw.chart.error.description || 'unknown'}`);
+  const result = raw.chart?.result?.[0];
+  if (!result) throw new Error(`No data for ${symbol}`);
+  const meta = result.meta || {};
+  const quote = result.indicators?.quote?.[0] || {};
+  const closes = (quote.close || []).map(v => (v == null ? null : Number(v)));
+  const validCloses = closes.filter(c => c != null && isFinite(c));
+  if (validCloses.length < 2) throw new Error(`Insufficient data for ${symbol}`);
+  const lastClose = validCloses[validCloses.length - 1];
+  const liveprice = (meta.regularMarketPrice != null) ? Number(meta.regularMarketPrice) : lastClose;
+  let prevForChange;
+  if (meta.regularMarketPrice != null && Math.abs(lastClose - liveprice) > 0.001) {
+    prevForChange = lastClose;
+  } else {
+    prevForChange = validCloses[validCloses.length - 2];
+  }
+  const change = liveprice - prevForChange;
+  const changePct = (change / prevForChange) * 100;
+  const ma = period => {
+    if (validCloses.length < period) return null;
+    const slice = validCloses.slice(-period);
+    return slice.reduce((a, b) => a + b, 0) / period;
+  };
+  const events = result.events || {};
+  const dividends = events.dividends ? Object.values(events.dividends) : [];
+  const now = Math.floor(Date.now() / 1000);
+  const recentDiv = dividends
+    .map(d => ({ ts: d.date, amount: d.amount }))
+    .filter(d => Math.abs(d.ts - now) < 90 * 86400)
+    .sort((a, b) => Math.abs(a.ts - now) - Math.abs(b.ts - now))[0];
+  const data = {
+    symbol: symbol.toUpperCase(), price: liveprice, prevClose: prevForChange,
+    change, changePct, ma5: ma(5), ma20: ma(20), ma60: ma(60),
+    closes: validCloses.slice(-30), currency: meta.currency || 'USD',
+    marketState: meta.marketState || 'UNKNOWN',
+    exchangeTimezone: meta.exchangeTimezoneName || 'America/New_York',
+    regularMarketTime: meta.regularMarketTime || null,
+    dividend: recentDiv ? { amount: recentDiv.amount, date: new Date(recentDiv.ts * 1000).toISOString().slice(0, 10) } : null,
+    longName: meta.longName || meta.shortName || symbol,
+  };
+  CACHE.set(cacheKey, { ts: Date.now(), data });
+  return data;
+}
+
+async function handleBatch(symbols) {
+  const results = await Promise.allSettled(symbols.map(fetchYahooChart));
+  const out = {};
+  results.forEach((r, i) => {
+    const sym = symbols[i].toUpperCase();
+    if (r.status === 'fulfilled') out[sym] = r.value;
+    else out[sym] = { symbol: sym, error: String(r.reason?.message || r.reason) };
+  });
+  return out;
+}
+
+// ==========================================================================
+// AI 生成端点（前端用）
+// ==========================================================================
+const LIMITS      = { DAILY_GLOBAL: 30, PER_IP_DAILY: 4  };   // ✨ AI评价 限额
+const GURU_LIMITS = { DAILY_GLOBAL: 60, PER_IP_DAILY: 5  };   // 🔮 大师会诊 限额（每人每天 5 次）
+const COUNTERS = new Map();
+function todayKey() { return new Date().toISOString().slice(0, 10); }
+async function hashIp(ip) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip));
+  return Array.from(new Uint8Array(buf)).slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function getCount(key) { return COUNTERS.get(key) || 0; }
+function incrCount(key) { COUNTERS.set(key, (COUNTERS.get(key) || 0) + 1); }
+function cleanupCounters() {
+  if (COUNTERS.size < 200) return;
+  const today = todayKey();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  for (const key of COUNTERS.keys()) {
+    if (!key.endsWith(today) && !key.endsWith(yesterday)) COUNTERS.delete(key);
+  }
+}
+async function checkRateLimit(request) {
+  const today = todayKey();
+  const globalKey = `global:${today}`;
+  if (getCount(globalKey) >= LIMITS.DAILY_GLOBAL) {
+    return { ok: false, reason: `今日全局 AI 调用次数已达上限。`, remaining: { global: 0, ip: null } };
+  }
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const ipKey = `ip:${await hashIp(ip)}:${today}`;
+  if (getCount(ipKey) >= LIMITS.PER_IP_DAILY) {
+    return { ok: false, reason: `你这个 IP 今日已调用 ${LIMITS.PER_IP_DAILY} 次。`, remaining: { global: LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: 0 } };
+  }
+  return {
+    ok: true,
+    consume: () => { incrCount(globalKey); incrCount(ipKey); cleanupCounters(); },
+    remaining: { global: LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: LIMITS.PER_IP_DAILY - getCount(ipKey) }
+  };
+}
+
+// 大师会诊专用限流（每人每天 5 次）
+async function checkGuruRateLimit(request) {
+  const today = todayKey();
+  const globalKey = `guru_global:${today}`;
+  if (getCount(globalKey) >= GURU_LIMITS.DAILY_GLOBAL) {
+    return { ok: false, reason: `今日大师会诊全局次数已达上限，请明天再试。`, remaining: { global: 0, ip: null, ipLimit: GURU_LIMITS.PER_IP_DAILY } };
+  }
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const ipKey = `guru_ip:${await hashIp(ip)}:${today}`;
+  if (getCount(ipKey) >= GURU_LIMITS.PER_IP_DAILY) {
+    return {
+      ok: false,
+      reason: `大师会诊每人每天限 ${GURU_LIMITS.PER_IP_DAILY} 次，你今日已用完。明天 UTC 0 点重置。`,
+      remaining: { global: GURU_LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: 0, ipLimit: GURU_LIMITS.PER_IP_DAILY }
+    };
+  }
+  const used = getCount(ipKey);
+  return {
+    ok: true,
+    consume: () => { incrCount(globalKey); incrCount(ipKey); cleanupCounters(); },
+    remaining: {
+      global: GURU_LIMITS.DAILY_GLOBAL - getCount(globalKey),
+      ip: GURU_LIMITS.PER_IP_DAILY - used,
+      ipLimit: GURU_LIMITS.PER_IP_DAILY
+    }
+  };
+}
+
+function sanitizeJsonNewlines(str) {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (escaped) { result += ch; escaped = false; continue; }
+    if (ch === '\\' && inString) { escaped = true; result += ch; continue; }
+    if (ch === '"') { inString = !inString; result += ch; continue; }
+    if (inString && (ch === '\n' || ch === '\r')) { result += ' '; continue; }
+    result += ch;
+  }
+  return result;
+}
+
+function buildAiPrompt(snapshot) {
+  const indices = snapshot.indices.map(i =>
+    `${i.sym}(${i.name}) ${i.price.toFixed(2)} ${i.changePct >= 0 ? '+' : ''}${i.changePct.toFixed(2)}%`
+  ).join('，');
+  const vix = snapshot.vix
+    ? `VIX ${snapshot.vix.value.toFixed(2)} (${snapshot.vix.changePct >= 0 ? '+' : ''}${snapshot.vix.changePct.toFixed(2)}%)`
+    : 'VIX 数据缺失';
+  const sectorsUp = snapshot.sectors.filter(s => s.chg > 0).slice(0, 5).map(s => `${s.name} +${s.chg.toFixed(2)}%`).join('，');
+  const sectorsDown = snapshot.sectors.filter(s => s.chg < 0).slice().reverse().slice(0, 5).map(s => `${s.name} ${s.chg.toFixed(2)}%`).join('，');
+  const stocks = Object.entries(snapshot.stocks).map(([sym, s]) => {
+    const ma5Rel = s.ma5 ? ((s.price - s.ma5) / s.ma5 * 100).toFixed(2) : 'n/a';
+    const ma20Rel = s.ma20 ? ((s.price - s.ma20) / s.ma20 * 100).toFixed(2) : 'n/a';
+    const ma60Rel = s.ma60 ? ((s.price - s.ma60) / s.ma60 * 100).toFixed(2) : 'n/a';
+    const events = s.events && s.events.length ? ` 事件:[${s.events.join(',')}]` : '';
+    return `${sym}: $${s.price.toFixed(2)} (${s.changePct >= 0 ? '+' : ''}${s.changePct.toFixed(2)}%) vs MA5 ${ma5Rel}% MA20 ${ma20Rel}% MA60 ${ma60Rel}%${events}`;
+  }).join('\n');
+  const stockSyms = Object.keys(snapshot.stocks);
+  return `你是一位经验丰富的美股分析师。基于以下真实行情数据生成内容。
+
+# 今日行情快照（${snapshot.date}）
+大盘：${indices}
+恐慌：${vix}
+领涨板块：${sectorsUp || '无'}
+领跌板块：${sectorsDown || '无'}
+自选股：
+${stocks}
+
+请严格按以下 JSON schema 输出：
+{
+  "stockEvals": {
+    ${stockSyms.map(s => `"${s}": "2-3句评价，紧扣数据，用 **粗体** 强调"`).join(',\n    ')}
+  },
+  "strategy": {
+    "pain": ["3-4 条痛点"],
+    "issue": ["3-4 条问题"],
+    "env": "市场环境一段话",
+    "play": ["4-5 条今日打法"]
+  },
+  "news": [{"headline": "标题", "type": "fed/big/default", "summary": "100字总结", "tags": ["标签"]}],
+  "tips": {"title": "🎯 今日小白功课", "sub": "Today's Lesson", "items": [{"h": "标题", "p": "80-120字"}]}
+}
+
+⚠️ 严格要求：
+1. 只输出纯 JSON，第一个字符必须是 {，最后一个字符必须是 }。
+2. 禁止任何 markdown 围栏（\`\`\`json 或 \`\`\`）。
+3. 所有字符串值必须在同一行，禁止换行符。
+4. stockEvals 里每个值是一个字符串，不是数组。`;
+}
+
+function fixed(n, digits = 2) {
+  return typeof n === 'number' && isFinite(n) ? n.toFixed(digits) : 'n/a';
+}
+
+function buildGuruAnalysisPrompt(symbol, snapshot) {
+  const sym = String(symbol || '').toUpperCase();
+  const stock = snapshot?.stocks?.[sym] || {};
+  const name = stock.longName || stock.name || sym;
+  const ma5Rel = stock.ma5 ? ((stock.price - stock.ma5) / stock.ma5 * 100) : null;
+  const ma20Rel = stock.ma20 ? ((stock.price - stock.ma20) / stock.ma20 * 100) : null;
+  const ma60Rel = stock.ma60 ? ((stock.price - stock.ma60) / stock.ma60 * 100) : null;
+  const indices = (snapshot?.indices || []).map(i =>
+    `${i.sym} ${fixed(i.price)} (${i.changePct >= 0 ? '+' : ''}${fixed(i.changePct)}%)`
+  ).join('，') || '无大盘数据';
+  const vix = snapshot?.vix
+    ? `VIX ${fixed(snapshot.vix.value)} (${snapshot.vix.changePct >= 0 ? '+' : ''}${fixed(snapshot.vix.changePct)}%)`
+    : 'VIX 数据缺失';
+  const sectors = (snapshot?.sectors || []).slice(0, 6)
+    .map(s => `${s.name || s.sym} ${s.chg >= 0 ? '+' : ''}${fixed(s.chg)}%`)
+    .join('，') || '无板块数据';
+  const events = Array.isArray(stock.events) && stock.events.length ? stock.events.join('，') : '无已知事件';
+  const existingEval = stock.eval || '无';
+
+  return `你是一个多代理股票研究系统。请参考开源项目 virattt/ai-hedge-fund 的多分析师思想：不同投资大师使用不同框架独立分析同一只股票，然后汇总成共识。不要声称这些历史人物本人给出了建议；你是在模拟其公开投资框架。
+
+# 股票
+代码：${sym}
+名称：${name}
+日期：${snapshot?.date || new Date().toISOString().slice(0, 10)}
+价格：${fixed(stock.price)}
+今日涨跌：${stock.change >= 0 ? '+' : ''}${fixed(stock.change)} (${stock.changePct >= 0 ? '+' : ''}${fixed(stock.changePct)}%)
+均线位置：MA5 ${fixed(stock.ma5)}（相对 ${fixed(ma5Rel)}%），MA20 ${fixed(stock.ma20)}（相对 ${fixed(ma20Rel)}%），MA60 ${fixed(stock.ma60)}（相对 ${fixed(ma60Rel)}%）
+事件：${events}
+现有简评：${existingEval}
+
+# 市场背景
+大盘：${indices}
+波动率：${vix}
+板块前列：${sectors}
+
+# 任务
+请输出 5 张完整分析卡片，分别对应这些风格：
+1. Warren Buffett：护城河、盈利质量、安全边际、长期持有。
+2. Charlie Munger：优质企业、公平价格、管理层质量、避免愚蠢风险。
+3. Aswath Damodaran：故事-数字一致性、估值、增长假设、风险折现。
+4. Cathie Wood：颠覆式创新、长期 TAM、技术采用曲线、增长弹性。
+5. Stanley Druckenmiller：宏观流动性、趋势、仓位、非对称机会。
+
+请严格输出 JSON，不要 markdown 围栏，不要额外文字：
+{
+  "consensus": {
+    "decision": "综合结论，例如 观望 / 分批买入 / 持有 / 减仓",
+    "riskLevel": "低 / 中 / 高",
+    "summary": "120-180 字中文总结，必须综合大师分歧、技术位置、市场环境和操作边界"
+  },
+  "gurus": [
+    {
+      "key": "warren_buffett",
+      "name": "Warren Buffett",
+      "title": "护城河与安全边际",
+      "stance": "bullish / neutral / bearish",
+      "confidence": 0-100,
+      "horizon": "时间框架",
+      "thesis": ["3 条核心理由，每条 20-45 字，必须结合给定行情或估值逻辑"],
+      "concerns": ["2-3 条主要风险"],
+      "watchlist": ["2-3 个后续观察信号"],
+      "action": "一句明确操作建议，含仓位或买卖边界"
+    }
+  ]
+}
+
+要求：
+- 必须返回 5 个 gurus，顺序与上面一致。
+- stance 只能是 bullish、neutral、bearish。
+- 所有字符串值必须在同一行，不允许换行符。
+- 不要编造最新财报数字、管理层讲话或具体新闻；如果缺少基本面数据，就明确说数据不足，并用价格/均线/市场背景约束结论。
+- 这是教育研究用途，不构成投资建议。只输出合法 JSON。`;
+}
+
+// ─── 模型常量 ────────────────────────────────────────────────────────────────
+const MODEL_SONNET = 'claude-sonnet-4-5-20250929'; // AI评价 / 大师会诊（高质量）
+const MODEL_HAIKU  = 'claude-haiku-4-5-20251001';  // 定时推送（省钱，速度快）
+
+// Prompt Caching header（所有调用都加，Haiku 也支持）
+const ANTHROPIC_HEADERS = {
+  'Content-Type': 'application/json',
+  'x-api-key': '', // 运行时替换
+  'anthropic-version': '2023-06-01',
+  'anthropic-beta': 'prompt-caching-2024-07-31',
+};
+
+/**
+ * 通用 Anthropic 调用。
+ * @param {string|object[]} promptOrMessages  字符串或已组装好的 messages 数组
+ * @param {string}  apiKey
+ * @param {object}  opts
+ * @param {string}  opts.model       默认 MODEL_SONNET
+ * @param {number}  opts.maxTokens   默认 4096
+ * @param {boolean} opts.cacheSystem 把 system prompt 加 cache_control（推送场景）
+ * @param {string}  opts.systemText  若提供，作为带缓存标记的 system block
+ */
+async function callAnthropic(promptOrMessages, apiKey, {
+  model = MODEL_SONNET,
+  maxTokens = 4096,
+  systemText = null,
+} = {}) {
+  const messages = typeof promptOrMessages === 'string'
+    ? [{ role: 'user', content: promptOrMessages }]
+    : promptOrMessages;
+
+  const body = { model, max_tokens: maxTokens, messages };
+
+  // 如果传入了 systemText，以带缓存标记的 system block 形式发送
+  if (systemText) {
+    body.system = [{
+      type: 'text',
+      text: systemText,
+      cache_control: { type: 'ephemeral' }, // 最长 5 分钟缓存，命中后输入费减 90%
+    }];
+  }
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { ...ANTHROPIC_HEADERS, 'x-api-key': apiKey },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Anthropic ${resp.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await resp.json();
+  const rawText = data.content?.[0]?.text || '';
+  // 剥离 markdown 围栏（无论出现在任何位置）
+  let jsonStr = rawText.trim().replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+  // 找到最外层的 { ... }
+  const firstBrace = jsonStr.indexOf('{');
+  const lastBrace = jsonStr.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+  // 清理字符串值内的换行
+  jsonStr = sanitizeJsonNewlines(jsonStr);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (e) {
+    // 二次补救：把所有字面换行替换为空格再试一次
+    try {
+      parsed = JSON.parse(jsonStr.replace(/\n/g, ' ').replace(/\r/g, ''));
+    } catch (e2) {
+      throw new Error(`AI 返回的 JSON 无法解析: ${e.message}. 原始内容: ${rawText.slice(0, 200)}`);
+    }
+  }
+  return { parsed, usage: data.usage || null };
+}
+
+async function handleAiGenerate(request, env) {
+  const apiKey = env?.ANTHROPIC_API_KEY;
+  if (!apiKey) return jsonResponse({ error: '后端未配置 ANTHROPIC_API_KEY。' }, 500);
+  const limit = await checkRateLimit(request);
+  if (!limit.ok) return jsonResponse({ error: limit.reason, remaining: limit.remaining }, 429);
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return jsonResponse({ error: '请求体 JSON 解析失败' }, 400); }
+  const snapshot = body?.snapshot;
+  if (!snapshot || !snapshot.stocks || !snapshot.indices) return jsonResponse({ error: '请求体缺少 snapshot' }, 400);
+  try {
+    const prompt = buildAiPrompt(snapshot);
+    const { parsed, usage } = await callAnthropic(prompt, apiKey);
+    limit.consume();
+    return jsonResponse({
+      ok: true, data: parsed, usage,
+      remaining: { global: LIMITS.DAILY_GLOBAL - getCount(`global:${todayKey()}`), ip: limit.remaining.ip - 1 },
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    return jsonResponse({ error: 'AI 生成失败：' + (e.message || String(e)), remaining: limit.remaining }, 500);
+  }
+}
+
+async function handleGuruAnalysis(request, env) {
+  const apiKey = env?.ANTHROPIC_API_KEY;
+  if (!apiKey) return jsonResponse({ error: '后端未配置 ANTHROPIC_API_KEY。' }, 500);
+  // 使用大师会诊专属限流（每人每天 5 次）
+  const limit = await checkGuruRateLimit(request);
+  if (!limit.ok) return jsonResponse({ error: limit.reason, remaining: limit.remaining }, 429);
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return jsonResponse({ error: '请求体 JSON 解析失败' }, 400); }
+
+  const symbol = String(body?.symbol || '').trim().toUpperCase();
+  const snapshot = body?.snapshot;
+  if (!symbol || !/^[A-Z][A-Z0-9.\-]{0,7}$/.test(symbol)) {
+    return jsonResponse({ error: '请求体缺少有效 symbol' }, 400);
+  }
+  if (!snapshot || !snapshot.stocks || !snapshot.stocks[symbol]) {
+    return jsonResponse({ error: `请求体缺少 ${symbol} 的 snapshot.stocks 数据` }, 400);
+  }
+
+  try {
+    const prompt = buildGuruAnalysisPrompt(symbol, snapshot);
+    const { parsed, usage } = await callAnthropic(prompt, apiKey);
+    if (!Array.isArray(parsed?.gurus) || parsed.gurus.length < 4) {
+      throw new Error('AI 返回缺少 gurus 分析卡片');
+    }
+    limit.consume();
+    // remaining.ip 已在 consume 之前读，需减 1
+    const ipAfter = Math.max(0, limit.remaining.ip - 1);
+    return jsonResponse({
+      ok: true,
+      data: { ...parsed, symbol, source: 'virattt/ai-hedge-fund inspired multi-agent styles' },
+      usage,
+      remaining: { ip: ipAfter, ipLimit: GURU_LIMITS.PER_IP_DAILY },
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    return jsonResponse({ error: '大师会诊失败：' + (e.message || String(e)), remaining: limit.remaining }, 500);
+  }
+}
+
+function handleUsage() {
+  const today = todayKey();
+  return jsonResponse({
+    today, globalUsed: getCount(`global:${today}`),
+    globalLimit: LIMITS.DAILY_GLOBAL, perIpLimit: LIMITS.PER_IP_DAILY,
+  });
+}
+
+// ==========================================================================
+// 推送日报系统（Markdown 版）
+// ==========================================================================
+const DEFAULT_WATCHLIST = ['TSLA','AAPL','VOO','QQQM','GOOG','MSFT','NVDA','SMH','XLV','XLP'];
+const EMAIL_INDICES = ['SPY','QQQ','DIA','IWM'];
+const EMAIL_VIX = '^VIX';
+const EMAIL_SECTORS = ['XLK','XLV','XLF','XLY','XLP','XLE','XLI','XLB','XLU','XLRE','XLC'];
+
+const SECTOR_NAMES = {
+  XLK:'科技', XLV:'医疗', XLF:'金融', XLY:'可选消费', XLP:'日常消费',
+  XLE:'能源', XLI:'工业', XLB:'原材料', XLU:'公用事业', XLRE:'房地产', XLC:'通信'
+};
+const INDEX_NAMES = { SPY:'标普500', QQQ:'纳指100', DIA:'道指', IWM:'罗素2000' };
+const STOCK_NAMES_MAP = {
+  TSLA:'特斯拉', AAPL:'苹果', VOO:'标普500ETF', QQQM:'纳指100ETF',
+  GOOG:'谷歌', MSFT:'微软', NVDA:'英伟达', SMH:'半导体',
+  XLV:'医疗ETF', XLP:'消费ETF', AMD:'AMD', META:'Meta', AMZN:'亚马逊',
+};
+
+function detectEmailType(scheduledTime) {
+  const h = scheduledTime.getUTCHours();
+  const m = scheduledTime.getUTCMinutes();
+  const dow = scheduledTime.getUTCDay(); // 0=Sun,5=Fri
+  // 周报：周五 UTC 04:30 = 美东 00:30（夏令时）
+  if (dow === 5 && h === 4 && m === 30) return 'weekly';
+  // 盘前：美东 09:15 = UTC 13:15（夏令时）
+  if ((h === 13 || h === 14) && m === 15) return 'preopen';
+  // 开盘后 1h：美东 10:30 = UTC 14:30
+  if ((h === 14 || h === 15) && m === 30) return 'open';
+  // 盘中：美东 12:30 = UTC 16:30
+  if ((h === 16 || h === 17) && m === 30) return 'mid';
+  // 收盘前：美东 14:30 = UTC 18:30
+  if ((h === 18 || h === 19) && m === 30) return 'close';
+  // fallback
+  if (h < 14) return 'preopen';
+  if (h < 17) return 'open';
+  if (h < 19) return 'mid';
+  return 'close';
+}
+
+function buildPushTitle(emailType) {
+  const now = new Date();
+  const etParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(now);
+  const get = (t) => etParts.find(p => p.type === t)?.value || '';
+  const month = get('month');
+  const day = get('day');
+  const hour = get('hour');
+  const minute = get('minute');
+  const dayPeriod = get('dayPeriod');
+  const period = dayPeriod === 'AM' ? '早上' : '下午';
+  const labels = { preopen:'美股盘前速递 🌅', open:'美股开盘简报 ☀️', mid:'美股盘中简报 🕐', close:'美股收盘简报 🌙', weekly:'美股周报 📋' };
+  const label = labels[emailType] || '美股日报';
+  return `${label} ${month}/${day} ${period}${hour}:${minute}`;
+}
+
+async function fetchEmailData(env) {
+  const watchlist = env.WATCHLIST
+    ? env.WATCHLIST.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+    : DEFAULT_WATCHLIST;
+  const allSymbols = [...EMAIL_INDICES, EMAIL_VIX, ...EMAIL_SECTORS, ...watchlist];
+  const unique = [...new Set(allSymbols)];
+  const data = await handleBatch(unique);
+  const indices = EMAIL_INDICES.map(sym => {
+    const d = data[sym] || {};
+    return { sym, name: INDEX_NAMES[sym] || sym, price: d.price, change: d.change, changePct: d.changePct };
+  });
+  const vix = data['^VIX'] || data['%5EVIX'] || {};
+  const sectors = EMAIL_SECTORS.map(sym => {
+    const d = data[sym] || {};
+    return { sym, name: SECTOR_NAMES[sym] || sym, chg: d.changePct || 0 };
+  }).sort((a, b) => b.chg - a.chg);
+  const stocks = {};
+  for (const sym of watchlist) {
+    const d = data[sym.toUpperCase()] || {};
+    stocks[sym] = {
+      price: d.price, change: d.change, changePct: d.changePct,
+      ma5: d.ma5, ma60: d.ma60, ma20: d.ma20,
+      events: d.dividend ? [`派息 $${d.dividend.amount} · ${d.dividend.date}`] : [],
+    };
+  }
+  return {
+    date: new Date().toLocaleDateString('zh-CN', { timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }),
+    etTime: new Date().toLocaleString('zh-CN', { timeZone: 'America/New_York', hour:'2-digit', minute:'2-digit', hour12: false }),
+    indices, vix: { value: vix.price, change: vix.change, changePct: vix.changePct },
+    sectors, stocks, watchlist,
+  };
+}
+
+// ─── 推送 AI：Haiku + Prompt Caching ────────────────────────────────────────
+// system prompt（静态，可缓存）
+const EMAIL_AI_SYSTEM = `你是美股分析师助手。根据用户提供的实时行情数据，严格按照指定 JSON schema 生成推送报告。
+规则：
+1. 所有字符串值必须在同一行，不允许任何换行符。
+2. 只输出合法 JSON，不要 markdown 围栏，不要额外文字。
+3. 语言简洁、专业，适合移动端阅读。
+4. 数字观点必须来自用户提供的真实数据，不要编造。
+
+可能的 emailType 及对应 JSON schema：
+
+open（开盘后1小时，美东10:30）:
+{ "headline": "开盘定调一句话", "stockEvals": {"SYM": "2句评价"}, "sectorFocus": "2-3句重点板块分析", "morningPlay": ["2-3条上午操作建议"] }
+
+mid（盘中，美东12:30）:
+{ "headline": "盘中一句话", "stockEvals": {"SYM": "2句评价"}, "midDaySignal": "2-3句盘中信号", "afternoonPlay": ["2-3条下午操作建议"] }
+
+close（收盘前90分钟，美东14:30）:
+{ "headline": "一句话总结", "stockEvals": {"SYM": "2-3句评价"}, "strategy": { "pain":["2条痛点"], "issue":["2条问题"], "env":"市场环境1段", "play":["3条打法"] }, "tips": [{"h":"标题","p":"内容"}] }
+
+preopen（开盘前15分钟，美东9:15）:
+{ "headline": "盘前一句话定调", "movers": [{"sym":"代码","direction":"up/down","magnitude":"大/中/小","reason":"1-2句原因"}], "marketNews": "今日市场新闻，不超过300字", "actionPlan": "今日操作建议，不超过200字", "reminder": "今日温馨提示，不超过200字" }
+movers 只包含盘前异动明显的股票（涨跌幅绝对值 > 1% 或有明显信号的），不足则留空数组。
+
+weekly（周五晚复盘）:
+{ "weekSummary": "过去一周市场环境、痛点、问题、打法总结，不超过500字", "etfHighlights": {"QQQ":"QQQ一周情况不超过150字","VOO":"VOO一周情况不超过150字"}, "stockHighlights": {"SYM": "个股亮点不超过150字"}, "nextWeekPlay": ["下周操作建议3-5条，融入投资大师思路"] }
+stockHighlights 只包含本周有明显异动或值得关注的个股，不需要每只都写。`;
+
+async function generateEmailAI(emailData, emailType, apiKey) {
+  const { date, etTime, indices, vix, sectors, stocks, watchlist } = emailData;
+
+  const indicesText = indices.map(i =>
+    `${i.sym}(${i.name}) $${(i.price||0).toFixed(2)} ${(i.changePct||0)>=0?'+':''}${(i.changePct||0).toFixed(2)}%`
+  ).join('，');
+  const vixText = vix.value
+    ? `VIX ${vix.value.toFixed(2)} (${(vix.changePct||0)>=0?'+':''}${(vix.changePct||0).toFixed(2)}%)`
+    : 'VIX 缺失';
+  const topUp = sectors.filter(s=>s.chg>0).slice(0,4).map(s=>`${s.name}+${s.chg.toFixed(2)}%`).join('，');
+  const topDn = sectors.filter(s=>s.chg<0).reverse().slice(0,4).map(s=>`${s.name}${s.chg.toFixed(2)}%`).join('，');
+  const stocksText = watchlist.map(sym => {
+    const s = stocks[sym] || {};
+    const ma5r  = s.ma5  ? ((s.price-s.ma5)/s.ma5*100).toFixed(1)   : 'n/a';
+    const ma20r = s.ma20 ? ((s.price-s.ma20)/s.ma20*100).toFixed(1) : 'n/a';
+    const ma60r = s.ma60 ? ((s.price-s.ma60)/s.ma60*100).toFixed(1) : 'n/a';
+    return `${sym}: $${(s.price||0).toFixed(2)} (${(s.changePct||0)>=0?'+':''}${(s.changePct||0).toFixed(2)}%) vs MA5 ${ma5r}% MA20 ${ma20r}% MA60 ${ma60r}%`;
+  }).join('\n');
+
+  // 实时数据放 user message（每次不同，不缓存）
+  const userPrompt = `美东时间 ${etTime}，${date}。emailType: ${emailType}
+
+大盘：${indicesText}
+${vixText}
+领涨：${topUp || '无'}  领跌：${topDn || '无'}
+自选股：
+${stocksText}
+
+按 ${emailType} schema 输出 JSON。`;
+
+  const { parsed } = await callAnthropic(userPrompt, apiKey, {
+    model: MODEL_HAIKU,
+    maxTokens: 2048,
+    systemText: EMAIL_AI_SYSTEM,   // 静态内容走缓存
+  });
+  return parsed;
+}
+
+// ========================== PUSHPLUS MARKDOWN 正文 ==========================
+function buildMarkdown(emailData, aiContent, emailType) {
+  const { date, etTime, indices, vix, sectors, stocks, watchlist } = emailData;
+  const typeLabel = {
+    preopen:'盘前速递 🌅', open:'开盘简报 ☀️',
+    mid:'盘中简报 🕐', close:'收盘前简报 🌙', weekly:'本周复盘 📋',
+  }[emailType] || '日报';
+  const fmt = (n, d=2) => (n==null||!isFinite(n)) ? '—' : Number(n).toFixed(d);
+  const fmtS = (n, d=2) => (n==null||!isFinite(n)) ? '—' : (n>=0?'+':'')+Number(n).toFixed(d);
+  const arrow = n => (n==null||!isFinite(n)) ? '◆' : n>0?'▲':n<0?'▼':'◆';
+  const blue = value => `<font color="#2563eb">${value}</font>`;
+  const moveColor = n => (n==null||!isFinite(n)) ? '#6b7280' : n>0 ? '#16a34a' : n<0 ? '#dc2626' : '#6b7280';
+  const coloredMove = n => `<font color="${moveColor(n)}">**${arrow(n)} ${fmtS(n)}%**</font>`;
+
+  let md = '';
+
+  if (aiContent?.headline) {
+    md += `> 💡 **${aiContent.headline}**\n\n`;
+  }
+  md += `**${typeLabel}** · ${date} · 美东 ${etTime}\n\n---\n\n`;
+
+  // ── 大盘（所有类型都有）
+  md += `### 📊 大盘指数\n\n`;
+  md += `| 指数 | 价格 | 涨跌幅 |\n|------|------|--------|\n`;
+  indices.forEach(i => {
+    md += `| ${blue(`**${i.sym}**`)} ${i.name} | ${blue(`$${fmt(i.price)}`)} | ${arrow(i.changePct)} ${fmtS(i.changePct)}% |\n`;
+  });
+  md += `\n`;
+  if (vix.value) {
+    const mood = vix.value < 15 ? '极度乐观 ⚠️' : vix.value < 20 ? '正常 ✓' : vix.value < 30 ? '恐慌抬头 ⚡' : '极度恐慌 🔴';
+    md += `**VIX**: ${fmt(vix.value)} (${arrow(vix.changePct)} ${fmtS(vix.changePct)}%) · ${mood}\n\n`;
+  }
+
+  // ── PREOPEN：盘前异动 + 新闻 + 建议 + 提示
+  if (emailType === 'preopen') {
+    if (aiContent?.movers && aiContent.movers.length > 0) {
+      md += `### 🚨 盘前异动\n\n`;
+      aiContent.movers.forEach(m => {
+        const dir = m.direction === 'up' ? '▲' : '▼';
+        const col = m.direction === 'up' ? '#16a34a' : '#dc2626';
+        md += `<font color="${col}">**${dir} ${m.sym}**</font>（${m.magnitude}幅）— ${m.reason}\n\n`;
+      });
+    } else {
+      md += `### 🚨 盘前异动\n\n暂无明显异动信号。\n\n`;
+    }
+    if (aiContent?.marketNews) {
+      md += `---\n\n### 📰 今日市场新闻\n\n${aiContent.marketNews}\n\n`;
+    }
+    if (aiContent?.actionPlan) {
+      md += `---\n\n### 🎯 今日操作建议\n\n${aiContent.actionPlan}\n\n`;
+    }
+    if (aiContent?.reminder) {
+      md += `---\n\n### 💡 今日温馨提示\n\n${aiContent.reminder}\n\n`;
+    }
+    md += `---\n\n*🐼 Jerry Fang 投研 · AI 由 Claude Haiku 生成 · 数据来源 Yahoo Finance · 仅供参考，非投资建议*`;
+    return md;
+  }
+
+  // ── WEEKLY：周报专用布局
+  if (emailType === 'weekly') {
+    md += `### 🎯 板块周表现\n\n`;
+    const secUp = sectors.filter(s=>s.chg>0).slice(0,5);
+    const secDn = sectors.filter(s=>s.chg<0).reverse().slice(0,5);
+    if (secUp.length) md += `**↑ 周涨**：` + secUp.map(s => `${s.name} +${s.chg.toFixed(2)}%`).join('，') + `\n\n`;
+    if (secDn.length) md += `**↓ 周跌**：` + secDn.map(s => `${s.name} ${s.chg.toFixed(2)}%`).join('，') + `\n\n`;
+
+    if (aiContent?.weekSummary) {
+      md += `---\n\n### 📋 本周市场复盘\n\n${aiContent.weekSummary}\n\n`;
+    }
+    if (aiContent?.etfHighlights) {
+      md += `---\n\n### 📈 ETF 周情况\n\n`;
+      ['QQQ','VOO'].forEach(sym => {
+        if (aiContent.etfHighlights[sym]) {
+          const s = stocks[sym] || {};
+          md += `**${sym}** ${blue(`$${fmt(s.price)}`)} ${coloredMove(s.changePct)}\n\n${aiContent.etfHighlights[sym]}\n\n`;
+        }
+      });
+    }
+    if (aiContent?.stockHighlights && Object.keys(aiContent.stockHighlights).length) {
+      md += `---\n\n### 💼 个股周 Highlight\n\n`;
+      Object.entries(aiContent.stockHighlights).forEach(([sym, text]) => {
+        const s = stocks[sym] || {};
+        md += `${blue(`**${sym}**`)} ${blue(`$${fmt(s.price)}`)} ${coloredMove(s.changePct)}\n\n${text}\n\n`;
+      });
+    }
+    if (aiContent?.nextWeekPlay && aiContent.nextWeekPlay.length) {
+      md += `---\n\n### 🔮 下周操作建议\n\n`;
+      aiContent.nextWeekPlay.forEach((p, i) => md += `${i+1}. ${p}\n`);
+      md += `\n`;
+    }
+    md += `---\n\n*🐼 Jerry Fang 投研 · AI 由 Claude Haiku 生成 · 数据来源 Yahoo Finance · 仅供参考，非投资建议*`;
+    return md;
+  }
+
+  // ── 日内推送（open / mid / close）共有部分：板块 + 自选股
+  md += `### 🎯 板块涨跌\n\n`;
+  const secUp = sectors.filter(s=>s.chg>0).slice(0,5);
+  const secDn = sectors.filter(s=>s.chg<0).reverse().slice(0,5);
+  if (secUp.length) md += `**↑ 领涨**：` + secUp.map(s => `${s.name} +${s.chg.toFixed(2)}%`).join('，') + `\n\n`;
+  if (secDn.length) md += `**↓ 领跌**：` + secDn.map(s => `${s.name} ${s.chg.toFixed(2)}%`).join('，') + `\n\n`;
+
+  md += `---\n\n### 📈 自选股\n\n`;
+  watchlist.forEach(sym => {
+    const s = stocks[sym] || {};
+    const name = STOCK_NAMES_MAP[sym] || '';
+    md += `${blue(`**${sym}**`)} **${name} ·** ${blue(`**$${fmt(s.price)}**`)} ${coloredMove(s.changePct)}\n`;
+    const maParts = [];
+    if (s.ma5)  { const d = ((s.price-s.ma5)/s.ma5*100); maParts.push(`MA5 ${d>=0?'↑':'↓'}${Math.abs(d).toFixed(1)}%`); }
+    if (s.ma20) { const d = ((s.price-s.ma20)/s.ma20*100); maParts.push(`MA20 ${d>=0?'↑':'↓'}${Math.abs(d).toFixed(1)}%`); }
+    if (s.ma60) { const d = ((s.price-s.ma60)/s.ma60*100); maParts.push(`MA60 ${d>=0?'↑':'↓'}${Math.abs(d).toFixed(1)}%`); }
+    if (maParts.length) md += `> ${maParts.join(' · ')}\n`;
+    const evalText = aiContent?.stockEvals?.[sym];
+    if (evalText) md += `\n${evalText}\n`;
+    if (s.events && s.events.length) md += `\n*${s.events.join(' · ')}*\n`;
+    md += `\n`;
+  });
+
+  if (emailType === 'open' && aiContent) {
+    if (aiContent.sectorFocus) md += `---\n\n### 🔍 今日重点板块\n\n${aiContent.sectorFocus}\n\n`;
+    if (aiContent.morningPlay?.length) {
+      md += `### ☀️ 上午操作建议\n\n`;
+      aiContent.morningPlay.forEach((p, i) => md += `${i+1}. ${p}\n`);
+      md += `\n`;
+    }
+  }
+  if (emailType === 'mid' && aiContent) {
+    if (aiContent.midDaySignal) md += `---\n\n### 📊 盘中信号\n\n${aiContent.midDaySignal}\n\n`;
+    if (aiContent.afternoonPlay?.length) {
+      md += `### 🕐 下午操作建议\n\n`;
+      aiContent.afternoonPlay.forEach((p, i) => md += `${i+1}. ${p}\n`);
+      md += `\n`;
+    }
+  }
+  if (emailType === 'close' && aiContent) {
+    const strat = aiContent.strategy;
+    if (strat) {
+      md += `---\n\n### 🎯 今日策略\n\n`;
+      if (strat.pain?.length) { md += `**😣 痛点**\n`; strat.pain.forEach(p => md += `- ${p}\n`); md += `\n`; }
+      if (strat.issue?.length) { md += `**⚠️ 问题**\n`; strat.issue.forEach(p => md += `- ${p}\n`); md += `\n`; }
+      if (strat.env) md += `**🌍 环境**\n\n${strat.env}\n\n`;
+      if (strat.play?.length) { md += `**🎯 打法**\n`; strat.play.forEach(p => md += `- ${p}\n`); md += `\n`; }
+    }
+    if (aiContent.tips?.length) {
+      md += `### 💡 投资小贴士\n\n`;
+      aiContent.tips.forEach((t, i) => md += `**${String(i+1).padStart(2,'0')}. ${t.h}**\n\n${t.p}\n\n`);
+    }
+  }
+
+  md += `---\n\n*🐼 Jerry Fang 投研 · AI 由 Claude Haiku 生成 · 数据来源 Yahoo Finance · 仅供参考，非投资建议*`;
+  return md;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildEmailHtml(emailData, aiContent, emailType) {
+  const { date, etTime, indices, vix, sectors, stocks, watchlist } = emailData;
+  const typeLabel = {
+    preopen:'盘前速递 🌅', open:'开盘简报', mid:'盘中简报',
+    close:'收盘前简报', weekly:'本周复盘 📋',
+  }[emailType] || '日报';
+  const fmt = (n, d=2) => (n==null||!isFinite(n)) ? '—' : Number(n).toFixed(d);
+  const fmtS = (n, d=2) => (n==null||!isFinite(n)) ? '—' : (n>=0?'+':'')+Number(n).toFixed(d);
+  const clr = n => (n==null||!isFinite(n)) ? '#6b7280' : n>0 ? '#16a34a' : n<0 ? '#dc2626' : '#6b7280';
+  const arrow = n => (n==null||!isFinite(n)) ? '◆' : n>0?'▲':n<0?'▼':'◆';
+  const text = value => escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  const list = items => Array.isArray(items) && items.length
+    ? `<ul style="margin:8px 0 0;padding-left:18px;color:#334155;line-height:1.7;">${items.map(i=>`<li>${text(i)}</li>`).join('')}</ul>`
+    : '';
+
+  const indicesHtml = indices.map(i => `
+    <td style="padding:12px;border:1px solid #e5e7eb;background:#ffffff;">
+      <div style="font-size:12px;color:#64748b;">${escapeHtml(i.name)}</div>
+      <div style="font-size:18px;font-weight:700;color:#0f172a;">${escapeHtml(i.sym)} $${fmt(i.price)}</div>
+      <div style="font-size:13px;font-weight:700;color:${clr(i.changePct)};">${arrow(i.changePct)} ${fmtS(i.changePct)}%</div>
+    </td>`).join('');
+
+  const secUp = sectors.filter(s=>s.chg>0).slice(0,5);
+  const secDn = sectors.filter(s=>s.chg<0).reverse().slice(0,5);
+  const sectorRows = [...secUp, ...secDn].map(s => `
+    <tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(s.name)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:${clr(s.chg)};">${fmtS(s.chg)}%</td>
+    </tr>`).join('');
+
+  const stocksHtml = watchlist.map(sym => {
+    const s = stocks[sym] || {};
+    const evalText = aiContent?.stockEvals?.[sym];
+    const maParts = [];
+    if (s.ma5)  { const d = ((s.price-s.ma5)/s.ma5*100); maParts.push(`MA5 ${d>=0?'↑':'↓'}${Math.abs(d).toFixed(1)}%`); }
+    if (s.ma20) { const d = ((s.price-s.ma20)/s.ma20*100); maParts.push(`MA20 ${d>=0?'↑':'↓'}${Math.abs(d).toFixed(1)}%`); }
+    if (s.ma60) { const d = ((s.price-s.ma60)/s.ma60*100); maParts.push(`MA60 ${d>=0?'↑':'↓'}${Math.abs(d).toFixed(1)}%`); }
+    return `
+      <tr>
+        <td style="padding:14px 0;border-bottom:1px solid #e5e7eb;">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>
+              <div style="font-size:17px;font-weight:800;color:#0f172a;">${escapeHtml(sym)} <span style="font-size:12px;font-weight:500;color:#64748b;">${escapeHtml(STOCK_NAMES_MAP[sym] || '')}</span></div>
+              <div style="margin-top:4px;font-size:12px;color:#64748b;">${escapeHtml(maParts.join(' ｜ '))}</div>
+            </div>
+            <div style="text-align:right;white-space:nowrap;">
+              <div style="font-size:17px;font-weight:800;color:#0f172a;">$${fmt(s.price)}</div>
+              <div style="font-size:13px;font-weight:800;color:${clr(s.changePct)};">${arrow(s.changePct)} ${fmtS(s.changePct)}%</div>
+            </div>
+          </div>
+          ${evalText ? `<div style="margin-top:10px;padding:10px 12px;border-left:3px solid #2563eb;background:#eff6ff;color:#334155;line-height:1.65;font-size:13px;">${text(evalText)}</div>` : ''}
+          ${s.events?.length ? `<div style="margin-top:8px;color:#d97706;font-size:12px;">${escapeHtml(s.events.join(' ｜ '))}</div>` : ''}
+        </td>
+      </tr>`;
+  }).join('');
+
+  let extraHtml = '';
+  if (emailType === 'preopen' && aiContent) {
+    if (aiContent.movers?.length) {
+      extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">🚨 盘前异动</h2>`;
+      aiContent.movers.forEach(m => {
+        const mc = m.direction === 'up' ? '#16a34a' : '#dc2626';
+        const dir = m.direction === 'up' ? '▲' : '▼';
+        extraHtml += `<div style="padding:10px 12px;border-left:4px solid ${mc};background:#f8fafc;margin-bottom:8px;border-radius:0 6px 6px 0;"><strong style="color:${mc}">${dir} ${escapeHtml(m.sym)}</strong>（${escapeHtml(m.magnitude)}幅）— ${text(m.reason)}</div>`;
+      });
+    }
+    if (aiContent.marketNews) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">📰 今日市场新闻</h2><p style="line-height:1.7;color:#334155;">${text(aiContent.marketNews)}</p>`;
+    if (aiContent.actionPlan) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">🎯 今日操作建议</h2><p style="line-height:1.7;color:#334155;">${text(aiContent.actionPlan)}</p>`;
+    if (aiContent.reminder) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">💡 今日温馨提示</h2><p style="line-height:1.7;color:#334155;">${text(aiContent.reminder)}</p>`;
+  }
+  if (emailType === 'open' && aiContent) {
+    if (aiContent.sectorFocus) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">今日重点板块</h2><p style="line-height:1.7;color:#334155;">${text(aiContent.sectorFocus)}</p>`;
+    if (aiContent.morningPlay?.length) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">上午操作建议</h2>${list(aiContent.morningPlay)}`;
+  }
+  if (emailType === 'mid' && aiContent) {
+    if (aiContent.midDaySignal) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">盘中信号</h2><p style="line-height:1.7;color:#334155;">${text(aiContent.midDaySignal)}</p>`;
+    if (aiContent.afternoonPlay?.length) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">下午操作建议</h2>${list(aiContent.afternoonPlay)}`;
+  }
+  if (emailType === 'close' && aiContent?.strategy) {
+    const strat = aiContent.strategy;
+    extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">今日策略</h2>`;
+    if (strat.pain?.length) extraHtml += `<h3 style="font-size:14px;color:#d97706;margin:14px 0 4px;">痛点</h3>${list(strat.pain)}`;
+    if (strat.issue?.length) extraHtml += `<h3 style="font-size:14px;color:#dc2626;margin:14px 0 4px;">问题</h3>${list(strat.issue)}`;
+    if (strat.env) extraHtml += `<h3 style="font-size:14px;color:#2563eb;margin:14px 0 4px;">环境</h3><p style="line-height:1.7;color:#334155;">${text(strat.env)}</p>`;
+    if (strat.play?.length) extraHtml += `<h3 style="font-size:14px;color:#16a34a;margin:14px 0 4px;">打法</h3>${list(strat.play)}`;
+  }
+  if (emailType === 'weekly' && aiContent) {
+    if (aiContent.weekSummary) extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">📋 本周市场复盘</h2><p style="line-height:1.7;color:#334155;">${text(aiContent.weekSummary)}</p>`;
+    if (aiContent.etfHighlights) {
+      extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">📈 ETF 周情况</h2>`;
+      ['QQQ','VOO'].forEach(sym => {
+        const t2 = aiContent.etfHighlights[sym];
+        if (!t2) return;
+        const s = stocks[sym] || {};
+        extraHtml += `<div style="margin-bottom:12px;padding:12px 14px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;"><strong>${escapeHtml(sym)}</strong> $${fmt(s.price)} <span style="color:${clr(s.changePct)};font-weight:700;">${fmtS(s.changePct)}%</span><p style="margin:8px 0 0;line-height:1.65;color:#334155;">${text(t2)}</p></div>`;
+      });
+    }
+    if (aiContent.stockHighlights && Object.keys(aiContent.stockHighlights).length) {
+      extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">💼 个股周 Highlight</h2>`;
+      Object.entries(aiContent.stockHighlights).forEach(([sym, t2]) => {
+        const s = stocks[sym] || {};
+        extraHtml += `<div style="margin-bottom:10px;padding:12px 14px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;"><strong>${escapeHtml(sym)}</strong> $${fmt(s.price)} <span style="color:${clr(s.changePct)};font-weight:700;">${fmtS(s.changePct)}%</span><p style="margin:8px 0 0;line-height:1.65;color:#334155;">${text(t2)}</p></div>`;
+      });
+    }
+    if (aiContent.nextWeekPlay?.length) {
+      extraHtml += `<h2 style="font-size:18px;color:#0f172a;margin:24px 0 8px;">🔮 下周操作建议</h2>${list(aiContent.nextWeekPlay)}`;
+    }
+  }
+
+  return `<!doctype html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',Arial,sans-serif;">
+  <div style="max-width:680px;margin:0 auto;padding:24px 14px;">
+    <div style="background:#0f172a;color:white;border-radius:10px 10px 0 0;padding:22px 24px;">
+      <div style="font-size:24px;font-weight:900;">美股日报</div>
+      <div style="margin-top:6px;color:#cbd5e1;">${escapeHtml(typeLabel)} · ${escapeHtml(date)} · 美东 ${escapeHtml(etTime)}</div>
+      ${aiContent?.headline ? `<div style="margin-top:16px;padding:12px 14px;border-radius:8px;background:#1e293b;line-height:1.65;color:#e2e8f0;">${text(aiContent.headline)}</div>` : ''}
+    </div>
+    <div style="background:white;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 10px 10px;padding:22px 24px;">
+      <h2 style="font-size:18px;color:#0f172a;margin:0 0 12px;">大盘指数</h2>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:16px;"><tr>${indicesHtml}</tr></table>
+      ${vix.value ? `<div style="padding:12px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0;margin-bottom:18px;"><strong>VIX 恐慌指数</strong>：${fmt(vix.value)} <span style="font-weight:800;color:${clr(vix.changePct)};">${arrow(vix.changePct)} ${fmtS(vix.changePct)}%</span></div>` : ''}
+      <h2 style="font-size:18px;color:#0f172a;margin:22px 0 10px;">板块强弱</h2>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:18px;">${sectorRows}</table>
+      <h2 style="font-size:18px;color:#0f172a;margin:22px 0 4px;">自选股</h2>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">${stocksHtml}</table>
+      ${extraHtml}
+      <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;color:#94A3B8;font-size:11px;line-height:1.8;">🐼 <strong style="color:#C04018;">Jerry Fang 投研</strong> · AI-Powered Stock Dashboard<br>Built with Claude AI · Cloudflare Workers · Yahoo Finance<br>© 2025 Jerry Fang · 行情仅供参考，非投资建议</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function sendPushPlus(title, content, env) {
+  // 标题清洗：保留中文、英文、数字、:、/、空格
+  const safeTitle = String(title || '美股简报')
+    .replace(/[^\u4e00-\u9fa5a-zA-Z0-9:\/\s]/g, '')
+    .trim()
+    .slice(0, 30) || '美股简报';
+
+  const token = env.PUSHPLUS_TOKEN;
+  if (!token) throw new Error('PUSHPLUS_TOKEN 未配置');
+  const topic = env.PUSHPLUS_TOPIC;
+  if (!topic) throw new Error('PUSHPLUS_TOPIC 未配置');
+
+  const resp = await fetch('http://www.pushplus.plus/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token, topic, title: safeTitle, content,
+      template: 'markdown',  // ← 改成 markdown，免费版完全支持
+      channel: 'wechat',
+    }),
+  });
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`PushPlus ${resp.status}: ${text.slice(0, 300)}`);
+  let data;
+  try { data = JSON.parse(text); }
+  catch (e) { throw new Error(`PushPlus 返回内容不是 JSON: ${text.slice(0, 300)}`); }
+  if (data.code !== 200) throw new Error(`PushPlus error: ${text.slice(0, 300)}`);
+  return data;
+}
+
+async function sendEmail(title, html, env) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY 未配置');
+
+  const from = env.EMAIL_FROM;
+  if (!from) throw new Error('EMAIL_FROM 未配置');
+
+  const recipients = String(env.EMAIL_RECIPIENTS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (!recipients.length) throw new Error('EMAIL_RECIPIENTS 未配置');
+
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      from,
+      to: recipients,
+      subject: title,
+      html,
+    }),
+  });
+
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`Resend ${resp.status}: ${text.slice(0, 300)}`);
+
+  try { return JSON.parse(text); }
+  catch (e) { throw new Error(`Resend 返回内容不是 JSON: ${text.slice(0, 300)}`); }
+}
+
+async function runScheduledEmail(scheduledTime, env) {
+  const emailType = detectEmailType(new Date(scheduledTime));
+  console.log(`[Cron] 触发 ${emailType}，时间: ${new Date(scheduledTime).toISOString()}`);
+
+  const emailData = await fetchEmailData(env);
+  console.log(`[Cron] 行情拉取完成`);
+
+  let aiContent = null;
+  if (env.ANTHROPIC_API_KEY) {
+    try {
+      aiContent = await generateEmailAI(emailData, emailType, env.ANTHROPIC_API_KEY);
+      console.log(`[Cron] AI 生成完成`);
+    } catch(e) {
+      console.error(`[Cron] AI 失败（继续发推送）:`, e.message);
+    }
+  }
+
+  const markdown = buildMarkdown(emailData, aiContent, emailType);
+  const html = buildEmailHtml(emailData, aiContent, emailType);
+  const title = buildPushTitle(emailType);
+  console.log(`[Cron] 标题: ${title}，PushPlus 内容长度: ${markdown.length}，Email HTML 长度: ${html.length}`);
+
+  const [pushResult, emailResult] = await Promise.all([
+    sendPushPlus(title, markdown, env),
+    sendEmail(title, html, env),
+  ]);
+  console.log(`[Cron] PushPlus 推送成功:`, JSON.stringify(pushResult));
+  console.log(`[Cron] Resend 邮件发送成功:`, JSON.stringify(emailResult));
+  return {
+    emailType,
+    title,
+    pushContentLength: markdown.length,
+    emailHtmlLength: html.length,
+    topic: env.PUSHPLUS_TOPIC,
+    pushplus: pushResult,
+    email: emailResult,
+  };
+}
+
+// ---------- 主入口 ----------
+export default {
+  async fetch(request, env) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+    const url = new URL(request.url);
+
+    if (url.pathname === '/api/health' || url.pathname === '/') {
+      return jsonResponse({
+        status: 'ok',
+        message: '美股每日简报后端 · Markdown 推送版',
+        version: 'markdown-v2',
+        endpoints: [
+          'GET /api/batch?symbols=TSLA,AAPL,^VIX',
+          'POST /api/ai-generate',
+          'POST /api/guru-analysis',
+          'GET /api/usage',
+          'GET /api/trigger-email?type=preopen|open|mid|close|weekly',
+          'GET /api/preview-markdown?type=preopen|open|mid|close|weekly  (预览不发推送)',
+        ],
+        models: { push: MODEL_HAIKU, aiGenerate: MODEL_SONNET, guruAnalysis: MODEL_SONNET },
+        promptCaching: true,
+        aiConfigured: !!env?.ANTHROPIC_API_KEY,
+        pushConfigured: !!env?.PUSHPLUS_TOKEN,
+        pushTopicConfigured: !!env?.PUSHPLUS_TOPIC,
+        emailConfigured: !!(env?.RESEND_API_KEY && env?.EMAIL_FROM && env?.EMAIL_RECIPIENTS),
+        time: new Date().toISOString(),
+      });
+    }
+
+    if (url.pathname === '/api/batch') {
+      const symbolsParam = url.searchParams.get('symbols');
+      if (!symbolsParam) return jsonResponse({ error: 'symbols param required' }, 400);
+      const symbols = symbolsParam.split(',').map(s=>s.trim()).filter(s=>s.length>0&&s.length<16).slice(0,40);
+      if (symbols.length === 0) return jsonResponse({ error: 'no valid symbols' }, 400);
+      try {
+        const data = await handleBatch(symbols);
+        return jsonResponse({ data, fetchedAt: new Date().toISOString() });
+      } catch(e) { return jsonResponse({ error: String(e.message||e) }, 500); }
+    }
+
+    if (url.pathname.startsWith('/api/quote/')) {
+      const sym = decodeURIComponent(url.pathname.slice('/api/quote/'.length));
+      try { return jsonResponse({ data: await fetchYahooChart(sym) }); }
+      catch(e) { return jsonResponse({ error: String(e.message||e) }, 500); }
+    }
+
+    if (url.pathname === '/api/ai-generate' && request.method === 'POST') {
+      return await handleAiGenerate(request, env);
+    }
+
+    if (url.pathname === '/api/guru-analysis' && request.method === 'POST') {
+      return await handleGuruAnalysis(request, env);
+    }
+
+    if (url.pathname === '/api/usage') return handleUsage();
+
+    // 预览 markdown 内容（不发推送）
+    if (url.pathname === '/api/preview-markdown') {
+      const type = url.searchParams.get('type') || 'open';
+      if (!['preopen','open','mid','close','weekly'].includes(type)) {
+        return jsonResponse({ error: 'type 必须是 preopen/open/mid/close/weekly' }, 400);
+      }
+      try {
+        const emailData = await fetchEmailData(env);
+        let aiContent = null;
+        if (env.ANTHROPIC_API_KEY) {
+          try { aiContent = await generateEmailAI(emailData, type, env.ANTHROPIC_API_KEY); } catch(e) {}
+        }
+        const markdown = buildMarkdown(emailData, aiContent, type);
+        return new Response(markdown, { headers: { 'Content-Type': 'text/plain; charset=utf-8', ...CORS_HEADERS } });
+      } catch(e) {
+        return jsonResponse({ error: String(e.message||e) }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/trigger-email') {
+      const type = url.searchParams.get('type') || 'open';
+      if (!['preopen','open','mid','close','weekly'].includes(type)) {
+        return jsonResponse({ error: 'type 必须是 preopen/open/mid/close/weekly' }, 400);
+      }
+      try {
+        const emailData = await fetchEmailData(env);
+        let aiContent = null;
+        if (env.ANTHROPIC_API_KEY) {
+          try { aiContent = await generateEmailAI(emailData, type, env.ANTHROPIC_API_KEY); } catch(e) {}
+        }
+        const markdown = buildMarkdown(emailData, aiContent, type);
+        const html = buildEmailHtml(emailData, aiContent, type);
+        const title = buildPushTitle(type);
+        const [pushResult, emailResult] = await Promise.all([
+          sendPushPlus(title, markdown, env),
+          sendEmail(title, html, env),
+        ]);
+        return jsonResponse({
+          ok: true, type, title,
+          pushContentLength: markdown.length,
+          emailHtmlLength: html.length,
+          topic: env.PUSHPLUS_TOPIC,
+          pushplus: pushResult,
+          email: emailResult,
+        });
+      } catch(e) {
+        return jsonResponse({ error: String(e.message||e) }, 500);
+      }
+    }
+
+    return jsonResponse({ error: 'Not found', path: url.pathname }, 404);
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {
+      try {
+        const result = await runScheduledEmail(event.scheduledTime, env);
+        console.log('[Cron] 完成:', JSON.stringify(result));
+      } catch (e) {
+        console.error('[Cron] 失败:', e?.stack || e?.message || String(e));
+        throw e;
+      }
+    })());
+  },
+};

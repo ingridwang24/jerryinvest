@@ -1,0 +1,2668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>美股每日简报 · Daily Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0d12;
+    --bg-elev: #11151c;
+    --bg-card: #151a23;
+    --bg-card-hover: #1a2030;
+    --border: #232a38;
+    --border-strong: #2f3849;
+    --text: #e7ecf3;
+    --text-dim: #8b95a8;
+    --text-faint: #5a6478;
+    --accent: #d4af37;        /* gold */
+    --accent-soft: #b8941f;
+    --green: #22c55e;
+    --green-dim: #14532d;
+    --red: #ef4444;
+    --red-dim: #5e1a1a;
+    --blue: #3b82f6;
+    --orange: #f59e0b;
+    --purple: #a78bfa;
+
+    --font-display: 'Fraunces', 'Noto Sans SC', serif;
+    --font-body: 'Noto Sans SC', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: var(--font-body); }
+  body {
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212,175,55,0.06), transparent),
+      radial-gradient(ellipse 60% 40% at 90% 10%, rgba(59,130,246,0.04), transparent);
+    background-attachment: fixed;
+  }
+  ::selection { background: var(--accent); color: var(--bg); }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(10,13,18,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+  }
+  .topbar-inner {
+    max-width: 1400px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+  }
+  .brand h1 .accent { color: var(--accent); font-style: italic; }
+  .brand .tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+  }
+  .top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .btn:hover { background: var(--bg-card-hover); border-color: var(--accent); }
+  .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  .btn-primary:hover { background: var(--accent-soft); border-color: var(--accent-soft); }
+  .btn-ghost { background: transparent; }
+  .btn-small { padding: 5px 10px; font-size: 10px; }
+
+  select.btn { appearance: none; padding-right: 26px; background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+    background-position: calc(100% - 14px) center, calc(100% - 10px) center;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+  }
+
+  /* ---------- Layout ---------- */
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 28px 24px 80px;
+  }
+
+  /* ---------- Status bar ---------- */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .status-bar .left { display: flex; gap: 18px; flex-wrap: wrap; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .dot.demo { background: var(--orange); }
+  .dot.cached { background: var(--blue); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ---------- Section headers ---------- */
+  .section { margin-bottom: 36px; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .section-head h2::before {
+    content: "";
+    display: inline-block;
+    width: 4px; height: 16px;
+    background: var(--accent);
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  .section-head .meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Index strip ---------- */
+  .index-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .index-cell {
+    background: var(--bg-card);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: background 0.15s;
+  }
+  .index-cell:hover { background: var(--bg-card-hover); }
+  .index-cell .sym {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+  .index-cell .name {
+    font-size: 13px;
+    color: var(--text);
+    margin-top: 1px;
+  }
+  .index-cell .price {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 6px;
+    letter-spacing: -0.01em;
+  }
+  .index-cell .change {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neu { color: var(--text-dim); }
+
+  /* ---------- VIX block (compact half-width panel) ---------- */
+  .vix-block {
+    /* id="vix-block" still used — now inside .vix-block-compact */
+    display: contents;
+  }
+  .vix-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .vix-value {
+    font-family: var(--font-display);
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .vix-change { font-family: var(--font-mono); font-size: 13px; }
+  .vix-desc { color: var(--text-dim); font-size: 12px; line-height: 1.55; }
+
+  /* ---------- Sectors (compact grid like the screenshot) ---------- */
+  .sectors-compact {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+  }
+  @media (max-width: 1100px) { .sectors-compact { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 700px)  { .sectors-compact { grid-template-columns: repeat(2, 1fr); } }
+  .sector-pill {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .sector-pill:hover { border-color: var(--border-strong); background: var(--bg-card-hover); }
+  .sector-pill .name { color: var(--text); font-size: 13px; }
+  .sector-pill .chg { font-family: var(--font-mono); font-weight: 600; font-size: 13px; }
+
+  /* ---------- VIX + Guru split row ---------- */
+  .vix-guru-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 820px) { .vix-guru-row { grid-template-columns: 1fr; } }
+  .vix-block-compact {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+  }
+  .vix-block-compact .vix-row {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  .guru-panel {
+    background: linear-gradient(135deg, rgba(167,139,250,0.06), rgba(59,130,246,0.04));
+    border: 1px solid rgba(167,139,250,0.3);
+    border-radius: 6px;
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+  }
+  .guru-panel .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--purple);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .guru-panel .desc { font-size: 12px; color: var(--text-dim); line-height: 1.55; }
+  .guru-search-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .guru-search-input {
+    flex: 1; min-width: 120px;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    padding: 9px 14px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .guru-search-input:focus { outline: none; border-color: var(--purple); }
+  .guru-search-btn {
+    background: rgba(167,139,250,0.15);
+    color: var(--purple);
+    border: 1px solid rgba(167,139,250,0.4);
+    padding: 9px 18px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .guru-search-btn:hover { background: rgba(167,139,250,0.25); border-color: var(--purple); }
+
+  /* ---------- Watchlist (stocks) ---------- */
+  .watchlist-toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .add-form {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .add-input {
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    width: 100px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .add-input:focus { outline: none; border-color: var(--accent); }
+
+  /* ---------- View toggle (card / list) ---------- */
+  .view-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .view-toggle button {
+    background: var(--bg-card);
+    color: var(--text-dim);
+    border: 0;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .view-toggle button + button { border-left: 1px solid var(--border-strong); }
+  .view-toggle button.active { background: var(--accent); color: var(--bg); font-weight: 700; }
+  .view-toggle button:not(.active):hover { background: var(--bg-card-hover); color: var(--text); }
+
+  .stock-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .stock-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .stock-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .stock-card .remove-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: all 0.15s;
+  }
+  .stock-card .remove-btn:hover { color: var(--red); background: rgba(239,68,68,0.1); }
+
+  .stock-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+    padding-right: 34px;
+  }
+  .stock-title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+  .stock-sym {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  .stock-name { font-size: 11px; color: var(--text-dim); }
+  .stock-price-row { display: flex; align-items: baseline; gap: 12px; margin-top: 8px; margin-bottom: 12px; }
+  .stock-price {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .stock-change {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .guru-btn {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    font-size: 10px;
+    border-color: rgba(212,175,55,0.45);
+    color: var(--accent);
+    background: rgba(212,175,55,0.06);
+  }
+  .guru-btn:hover { background: rgba(212,175,55,0.12); }
+
+  /* MA bars */
+  .ma-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .ma-row {
+    display: grid;
+    grid-template-columns: 36px 1fr 60px;
+    gap: 10px;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    margin-bottom: 6px;
+    color: var(--text-dim);
+  }
+  .ma-label { letter-spacing: 0.05em; }
+  .ma-bar-track {
+    height: 5px;
+    background: var(--bg);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ma-bar-fill {
+    height: 100%;
+    position: absolute;
+    top: 0;
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+  .ma-bar-fill.pos { background: linear-gradient(90deg, var(--green-dim), var(--green)); }
+  .ma-bar-fill.neg { background: linear-gradient(90deg, var(--red), var(--red-dim)); }
+  .ma-marker {
+    position: absolute;
+    top: -3px; bottom: -3px;
+    width: 1px;
+    background: var(--text-dim);
+    left: 50%;
+  }
+  .ma-val { text-align: right; font-weight: 600; }
+
+  .stock-eval {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+  .stock-eval strong { color: var(--text); font-weight: 600; }
+  .stock-events {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .event-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    padding: 3px 7px;
+    background: rgba(212,175,55,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(212,175,55,0.3);
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .event-tag.dividend { background: rgba(34,197,94,0.1); color: var(--green); border-color: rgba(34,197,94,0.3); }
+
+  /* ---------- Clickable stock symbol (opens 30-day chart) ---------- */
+  .stock-sym.clickable {
+    cursor: pointer;
+    border-bottom: 1px dashed transparent;
+    transition: all 0.15s;
+  }
+  .stock-sym.clickable:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .stock-sym.clickable.expanded { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ---------- 30-day chart expansion ---------- */
+  .stock-chart-panel {
+    margin-top: 12px;
+    padding: 12px 8px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .chart-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+    padding: 0 6px;
+  }
+  .chart-head .chart-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .chart-head .chart-range {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .chart-head .chart-range.pos { color: var(--green); }
+  .chart-head .chart-range.neg { color: var(--red); }
+  .chart-svg { display: block; width: 100%; height: auto; }
+  .chart-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 12px;
+  }
+
+  /* ---------- Stock list view (table like screenshot) ---------- */
+  .stock-list {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .stock-list-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .stock-list-table thead th {
+    text-align: left;
+    padding: 12px 14px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .stock-list-table tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .stock-list-table tbody tr:last-child td { border-bottom: 0; }
+  .stock-list-table tbody tr:hover { background: var(--bg-card-hover); }
+  .stock-list-table .col-sym {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .stock-list-table .col-sym .clickable-sym {
+    cursor: pointer;
+    color: var(--text);
+    border-bottom: 1px dashed transparent;
+    transition: all 0.15s;
+  }
+  .stock-list-table .col-sym .clickable-sym:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .stock-list-table .col-sym .clickable-sym.expanded { color: var(--accent); border-bottom-color: var(--accent); }
+  .stock-list-table .col-price {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .stock-list-table .col-chg {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .stock-list-table .col-ma { white-space: nowrap; }
+  .stock-list-table .col-eval {
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+    min-width: 240px;
+  }
+  .stock-list-table .col-eval strong { color: var(--text); font-weight: 600; }
+  .stock-list-table .col-actions { white-space: nowrap; }
+  .stock-list-table .row-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .stock-list-table .row-remove:hover { color: var(--red); background: rgba(239,68,68,0.1); }
+  .stock-list-table .row-guru {
+    background: rgba(167,139,250,0.08);
+    color: var(--purple);
+    border: 1px solid rgba(167,139,250,0.3);
+    padding: 4px 9px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    margin-left: 4px;
+  }
+  .stock-list-table .row-guru:hover { background: rgba(167,139,250,0.18); border-color: var(--purple); }
+  .stock-list-table .chart-row td {
+    padding: 0;
+    background: var(--bg);
+  }
+  .stock-list-table .chart-row .stock-chart-panel {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* MA position pills (远低于 / 低于 / 持平 / 高于 / 远高于) */
+  .ma-pill {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .ma-pill.far-pos { color: var(--green); font-weight: 700; }
+  .ma-pill.pos     { color: var(--green); }
+  .ma-pill.flat    { color: var(--orange); }
+  .ma-pill.neg     { color: var(--red); }
+  .ma-pill.far-neg { color: var(--red); font-weight: 700; }
+  .ma-pill.unknown { color: var(--text-faint); }
+
+  /* ---------- News ---------- */
+  .news-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 800px) { .news-grid { grid-template-columns: 1fr; } }
+  .news-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    border-radius: 4px;
+    padding: 14px 18px;
+  }
+  .news-item.big { border-left-color: var(--accent); }
+  .news-item.fed { border-left-color: var(--purple); }
+  .news-item h4 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+  .news-item .summary { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+  .news-item .tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .news-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Strategy 4-block ---------- */
+  .strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 700px) { .strategy-grid { grid-template-columns: 1fr; } }
+  .strat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  .strat-card::before {
+    content: attr(data-num);
+    position: absolute;
+    top: -10px; right: 10px;
+    font-family: var(--font-display);
+    font-size: 64px;
+    font-weight: 800;
+    color: var(--bg-elev);
+    line-height: 1;
+    pointer-events: none;
+  }
+  .strat-card h3 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    position: relative;
+  }
+  .strat-card h3 .accent { color: var(--accent); margin-right: 6px; }
+  .strat-card .sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .strat-card p {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.65;
+    position: relative;
+  }
+  .strat-card ul { list-style: none; padding: 0; position: relative; }
+  .strat-card li {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.65;
+    padding-left: 16px;
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .strat-card li::before {
+    content: "▸";
+    color: var(--accent);
+    position: absolute;
+    left: 0;
+    font-size: 10px;
+    top: 4px;
+  }
+
+  /* ---------- AI Banner ---------- */
+  .ai-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(90deg, rgba(167,139,250,0.08), rgba(59,130,246,0.05));
+    border: 1px solid rgba(167,139,250,0.3);
+    border-radius: 6px;
+    padding: 10px 16px;
+    margin-bottom: 18px;
+    font-size: 13px;
+  }
+  .ai-banner-icon { font-size: 16px; }
+  .ai-banner-spacer { flex: 1; }
+  .ai-banner-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.05em;
+  }
+  .ai-banner.generating {
+    border-color: var(--accent);
+    background: linear-gradient(90deg, rgba(212,175,55,0.10), rgba(212,175,55,0.03));
+    animation: ai-pulse 2s infinite;
+  }
+  .ai-banner.error {
+    border-color: rgba(239,68,68,0.5);
+    background: rgba(239,68,68,0.05);
+    color: var(--red);
+  }
+  @keyframes ai-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  /* AI button states */
+  #ai-btn.has-ai {
+    border-color: var(--purple);
+    color: var(--purple);
+  }
+  #ai-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* AI-generated content marker on stock cards */
+  .stock-eval.ai-generated {
+    border-left-color: var(--purple);
+    background: linear-gradient(180deg, rgba(167,139,250,0.04), transparent);
+  }
+  .stock-eval.ai-generated::before {
+    content: "✨ AI";
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--purple);
+    letter-spacing: 0.1em;
+    margin-right: 8px;
+    padding: 1px 5px;
+    background: rgba(167,139,250,0.15);
+    border-radius: 2px;
+    vertical-align: middle;
+  }
+
+  /* ---------- Guru analysis modal ---------- */
+  .guru-modal[hidden] { display: none; }
+  .guru-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  .guru-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3,5,9,0.72);
+    backdrop-filter: blur(8px);
+  }
+  .guru-dialog {
+    position: relative;
+    width: min(1120px, 100%);
+    max-height: min(86vh, 900px);
+    overflow: auto;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 28px 90px rgba(0,0,0,0.45);
+  }
+  .guru-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 24px;
+    background: rgba(17,21,28,0.94);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+  }
+  .guru-title {
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 700;
+  }
+  .guru-sub {
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .guru-close {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text-dim);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+    padding: 4px 10px 7px;
+  }
+  .guru-close:hover { color: var(--text); border-color: var(--accent); }
+  .guru-body { padding: 22px 24px 26px; }
+  .guru-state {
+    padding: 24px;
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .guru-consensus {
+    border: 1px solid rgba(212,175,55,0.28);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+    background: rgba(212,175,55,0.05);
+  }
+  .guru-consensus h3 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    margin-bottom: 8px;
+  }
+  .guru-consensus p {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  .guru-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .guru-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 18px;
+  }
+  .guru-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .guru-name {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .guru-role {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .guru-stance {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 4px 7px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .guru-stance.bullish { color: var(--green); border-color: rgba(34,197,94,0.4); background: rgba(34,197,94,0.08); }
+  .guru-stance.bearish { color: var(--red); border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.08); }
+  .guru-stance.neutral { color: var(--accent); border-color: rgba(212,175,55,0.4); background: rgba(212,175,55,0.08); }
+  .guru-metric {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .guru-card h4 {
+    margin: 12px 0 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .guru-card ul { list-style: none; }
+  .guru-card li {
+    position: relative;
+    padding-left: 14px;
+    margin-bottom: 5px;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .guru-card li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+  }
+  .guru-action {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .tips-card {
+    background: linear-gradient(135deg, rgba(212,175,55,0.05), rgba(212,175,55,0.02));
+    border: 1px solid rgba(212,175,55,0.25);
+    border-radius: 6px;
+    padding: 24px 28px;
+  }
+  .tips-card h3 {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .tips-card .sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .tip-item {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 12px;
+    padding: 12px 0;
+    border-top: 1px solid rgba(212,175,55,0.15);
+  }
+  .tip-num {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .tip-content h4 { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+  .tip-content p { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+
+  /* ---------- History ---------- */
+  .history-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 22px;
+  }
+  .history-list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .history-pill {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .history-pill:hover { border-color: var(--accent); color: var(--accent); }
+  .history-pill.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .history-empty { color: var(--text-faint); font-size: 13px; }
+
+  /* ---------- Modal-like footer note ---------- */
+  .footer {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.05em;
+    line-height: 1.7;
+  }
+  .footer a { color: var(--text-dim); }
+
+  /* ---------- Loading / empty ---------- */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-card), var(--bg-card-hover), var(--bg-card));
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 600px) {
+    .container { padding: 18px 14px 60px; }
+    .topbar { padding: 12px 14px; }
+    .brand h1 { font-size: 20px; }
+    .vix-value { font-size: 34px; }
+    .index-cell .price { font-size: 18px; }
+    .stock-price { font-size: 22px; }
+    .guru-modal { padding: 10px; }
+    .guru-head { padding: 16px; }
+    .guru-body { padding: 16px; }
+    .guru-title { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== TOP BAR ===== -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <h1>美股<span class="accent">每日简报</span></h1>
+      <span class="tag">Daily Brief</span>
+    </div>
+    <div class="top-actions">
+      <select id="date-picker" class="btn" title="选择查看日期"></select>
+      <button id="refresh-btn" class="btn btn-primary" title="拉取最新数据并保存今日快照">↻ 刷新数据</button>
+      <button id="ai-btn" class="btn" title="调用 Claude AI 生成评价（手动触发，每日额度有限）">✨ AI 评价</button>
+      <button id="settings-btn" class="btn btn-ghost btn-small" title="设置">⚙</button>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="left">
+      <span class="status-pill"><span class="dot" id="status-dot"></span><span id="status-text">加载中…</span></span>
+      <span id="last-update">—</span>
+    </div>
+    <div>
+      <span id="market-status">—</span>
+    </div>
+  </div>
+
+  <!-- AI Banner（仅当有 AI 评价或正在生成时显示） -->
+  <div id="ai-banner" class="ai-banner" style="display:none;">
+    <span class="ai-banner-icon">✨</span>
+    <span id="ai-banner-text">—</span>
+    <span class="ai-banner-spacer"></span>
+    <span id="ai-banner-meta" class="ai-banner-meta"></span>
+  </div>
+
+  <div id="guru-modal" class="guru-modal" hidden>
+    <div class="guru-backdrop" data-guru-close></div>
+    <section class="guru-dialog" role="dialog" aria-modal="true" aria-labelledby="guru-title">
+      <div class="guru-head">
+        <div>
+          <div id="guru-title" class="guru-title">大师会诊</div>
+          <div id="guru-sub" class="guru-sub">AI Hedge Fund style council</div>
+        </div>
+        <button id="guru-close" class="guru-close" title="关闭">×</button>
+      </div>
+      <div id="guru-body" class="guru-body"></div>
+    </section>
+  </div>
+
+  <!-- ===== 投资小贴士（已移到最上面）===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>每日投资小提示</h2>
+      <span class="meta">For Beginners · 写给小白</span>
+    </div>
+    <div class="tips-card">
+      <h3 id="tips-title">—</h3>
+      <div class="sub" id="tips-sub">—</div>
+      <div id="tips-list"></div>
+    </div>
+  </section>
+
+  <!-- ===== 大盘指数 ===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>大盘指数</h2>
+      <span class="meta">Major Indices</span>
+    </div>
+    <div class="index-strip" id="indices"></div>
+  </section>
+
+  <!-- ===== 恐慌指数 + 大师会诊（一分为二）===== -->
+  <section class="section">
+    <div class="vix-guru-row">
+      <!-- 左半：VIX -->
+      <div>
+        <div class="section-head">
+          <h2>恐慌指数</h2>
+          <span class="meta">VIX · Fear Gauge</span>
+        </div>
+        <div class="vix-block-compact" id="vix-block"></div>
+      </div>
+      <!-- 右半：大师会诊 -->
+      <div>
+        <div class="section-head">
+          <h2>大师会诊</h2>
+          <span class="meta">AI Hedge Fund · Multi-Agent</span>
+        </div>
+        <div class="guru-panel">
+          <span class="label">✨ 多代理风格分析</span>
+          <div class="desc">输入任意股票代码，由 5 位投资大师（巴菲特、芒格、Damodaran、Cathie Wood、Druckenmiller）视角并行分析，并给出共识结论。</div>
+          <form class="guru-search-form" id="guru-search-form" autocomplete="off">
+            <input class="guru-search-input" type="text" id="guru-search-input" placeholder="如 NVDA / TSLA" maxlength="8" />
+            <button type="submit" class="guru-search-btn">会诊</button>
+          </form>
+          <div class="desc" style="font-size:11px;color:var(--text-faint);">
+            ⏱ 每人每天限 <strong>5 次</strong>大师会诊（搜索框 + 个股追踪按钮共享额度），UTC 0 点重置。<br>
+            <span id="guru-quota-hint" style="color:var(--purple);"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 板块涨跌（紧凑栅格）===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>板块涨跌排行</h2>
+      <span class="meta">Sector Performance · 11 SPDR ETFs</span>
+    </div>
+    <div class="sectors-compact" id="sectors-compact"></div>
+  </section>
+
+  <!-- ===== 自选股（带视图切换 / 列表 / 卡片）===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>个股追踪</h2>
+      <div class="watchlist-toolbar">
+        <div class="view-toggle" id="view-toggle">
+          <button data-view="card" class="active" title="卡片视图">▦ 卡片</button>
+          <button data-view="list" title="列表视图">≡ 列表</button>
+        </div>
+        <form class="add-form" id="add-form" autocomplete="off">
+          <input class="add-input" type="text" id="add-input" placeholder="如 AMD" maxlength="8" />
+          <button type="submit" class="btn btn-small">+ 添加股票</button>
+        </form>
+        <span class="meta" id="watchlist-meta">—</span>
+      </div>
+    </div>
+    <div id="stock-container"></div>
+  </section>
+
+  <!-- ===== 重大新闻 ===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>重大新闻</h2>
+      <span class="meta">AI Summarized · 总结而非链接</span>
+    </div>
+    <div class="news-grid" id="news-grid"></div>
+  </section>
+
+  <!-- ===== 每日策略 ===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>每日策略</h2>
+      <span class="meta">痛点 · 问题 · 环境 · 打法</span>
+    </div>
+    <div class="strategy-grid" id="strategy-grid"></div>
+  </section>
+
+  <!-- ===== 历史简报 ===== -->
+  <section class="section">
+    <div class="section-head">
+      <h2>历史简报</h2>
+      <span class="meta">本地快照 · 浏览器存储</span>
+    </div>
+    <div class="history-panel">
+      <div id="history-list" class="history-list"></div>
+    </div>
+  </section>
+
+  <div class="footer">
+    数据来源：Yahoo Finance（通过自部署 Cloudflare Worker 代理）· 演示模式为静态示例 · 行情仅供参考，非投资建议<br>
+    自选股列表与历史快照保存在你本地浏览器（localStorage）· 不会上传到任何服务器
+  </div>
+
+</main>
+
+<script>
+/* ==========================================================================
+   美股每日简报 · 单文件应用
+   ========================================================================== */
+
+// ---------- 配置：默认股票池 ----------
+const DEFAULT_WATCHLIST = ['TSLA','AAPL','VOO','QQQM','GOOG','MSFT','NVDA','SMH','XLV','XLP'];
+const INDICES = [
+  { sym: 'SPY', name: '标普500 ETF' },
+  { sym: 'QQQ', name: '纳指100 ETF' },
+  { sym: 'DIA', name: '道指 ETF' },
+  { sym: 'IWM', name: '罗素2000 ETF' }
+];
+const SECTORS = [
+  { sym: 'XLK', name: '科技' },
+  { sym: 'XLV', name: '医疗保健' },
+  { sym: 'XLF', name: '金融' },
+  { sym: 'XLY', name: '可选消费' },
+  { sym: 'XLP', name: '日常消费' },
+  { sym: 'XLE', name: '能源' },
+  { sym: 'XLI', name: '工业' },
+  { sym: 'XLB', name: '原材料' },
+  { sym: 'XLU', name: '公用事业' },
+  { sym: 'XLRE', name: '房地产' },
+  { sym: 'XLC', name: '通信服务' }
+];
+const STOCK_NAMES = {
+  TSLA:'特斯拉', AAPL:'苹果', VOO:'先锋标普500', QQQM:'纳指100 ETF',
+  GOOG:'谷歌-C', MSFT:'微软', NVDA:'英伟达', SMH:'半导体ETF',
+  XLV:'医疗ETF', XLP:'消费ETF', AMD:'AMD', META:'Meta', AMZN:'亚马逊',
+  COIN:'Coinbase', PLTR:'Palantir', NFLX:'网飞', BABA:'阿里巴巴',
+  ARM:'Arm', AVGO:'博通', CRM:'Salesforce', UBER:'Uber', SHOP:'Shopify',
+  SPY:'标普500', QQQ:'纳指100', DIA:'道指', IWM:'罗素2000',
+  XLK:'科技ETF', XLF:'金融ETF', XLY:'可选消费', XLE:'能源ETF',
+  XLI:'工业ETF', XLB:'原材料', XLU:'公用事业', XLRE:'房地产', XLC:'通信服务',
+  VIX:'波动率指数'
+};
+
+// ==========================================================================
+// DEMO 数据：高质量静态示例（用于演示模式 / 数据源失败 fallback）
+// AI 评价等内容由 Claude 现写，符合你列出的股票特征
+// ==========================================================================
+const DEMO_DATA = {
+  date: '2026-05-19',
+  marketStatus: '盘后 · 美东时间 16:30 已收盘',
+  indices: [
+    { sym:'SPY', name:'标普500 ETF',  price: 612.34, change: +2.85, changePct: +0.47 },
+    { sym:'QQQ', name:'纳指100 ETF',  price: 548.92, change: +4.12, changePct: +0.76 },
+    { sym:'DIA', name:'道指 ETF',     price: 438.15, change: -0.62, changePct: -0.14 },
+    { sym:'IWM', name:'罗素2000 ETF', price: 224.07, change: -1.83, changePct: -0.81 }
+  ],
+  vix: { value: 14.82, change: -0.34, changePct: -2.24 },
+  sectors: [
+    { sym:'XLK', name:'科技',       chg:+1.24 },
+    { sym:'XLC', name:'通信服务',   chg:+0.92 },
+    { sym:'XLY', name:'可选消费',   chg:+0.45 },
+    { sym:'XLV', name:'医疗保健',   chg:+0.18 },
+    { sym:'XLI', name:'工业',       chg:-0.05 },
+    { sym:'XLF', name:'金融',       chg:-0.22 },
+    { sym:'XLP', name:'日常消费',   chg:-0.38 },
+    { sym:'XLRE',name:'房地产',     chg:-0.61 },
+    { sym:'XLB', name:'原材料',     chg:-0.74 },
+    { sym:'XLU', name:'公用事业',   chg:-0.91 },
+    { sym:'XLE', name:'能源',       chg:-1.48 }
+  ],
+  // 个股快照（含 5/10/20 日均线相对价格位置）
+  stocks: {
+    TSLA: { price: 358.42, change: +6.21, changePct: +1.76, ma5: 352.18, ma60: 344.30, ma20: 338.55,
+      events: ['Q1 财报已披露'],
+      eval: '**站稳所有均线，短线强势。** 突破 350 关口后量能放大，5/10/20 日均线呈多头排列。但 RSI 已逼近 70，警惕短线追高被套。中期关注交付数据与 FSD 进展。' },
+    AAPL: { price: 232.18, change: -1.45, changePct: -0.62, ma5: 233.50, ma60: 234.20, ma20: 230.80,
+      events: ['6月10日 WWDC'],
+      eval: '**跌破 5/10 日均线但守住 20 日。** 整理格局，等待 WWDC AI 叙事催化。资金面看，机构持仓稳定，没有明显抛压。逢低分批是相对稳健的策略。' },
+    VOO: { price: 562.07, change: +2.45, changePct: +0.44, ma5: 559.80, ma60: 557.15, ma20: 552.30,
+      events: [],
+      eval: '**多头排列完美，标普跟踪标的。** 没什么好说的——大盘涨它就涨。定投党闭眼买就行，最适合"什么都不懂但想吃市场平均收益"的人。' },
+    QQQM: { price: 245.18, change: +1.82, changePct: +0.75, ma5: 243.05, ma60: 240.78, ma20: 236.20,
+      events: [],
+      eval: '**纳指100 的"廉价版"，费率仅 0.15%。** 走势与 QQQ 几乎重合，长期持有比 QQQ 更划算。当前位于所有均线上方，趋势完好。' },
+    GOOG: { price: 195.34, change: +2.18, changePct: +1.13, ma5: 192.40, ma60: 189.55, ma20: 184.78,
+      events: ['I/O 大会余温'],
+      eval: '**Gemini 2.5 叙事推动反弹，重回多头排列。** 搜索广告业务现金牛地位稳固，云业务增速亮眼。AI 落地速度若持续追上 OpenAI，估值还有抬升空间。' },
+    MSFT: { price: 442.65, change: +1.92, changePct: +0.44, ma5: 440.10, ma60: 437.25, ma20: 432.80,
+      events: [],
+      eval: '**慢牛节奏，Azure + Copilot 双轮驱动。** 站稳所有均线，回调极少。机构最爱的"睡得着的科技股"，适合作为科技仓位的压舱石。' },
+    NVDA: { price: 142.87, change: +3.45, changePct: +2.47, ma5: 138.20, ma60: 134.50, ma20: 128.90,
+      events: ['5月28日 财报'],
+      eval: '**AI 之王，财报前的预期博弈最关键。** 5/10/20 日全部多头排列，但波动巨大——上一次财报后曾单日跌 6%。短线博弈需严格止损，长线持有就放心拿。' },
+    SMH: { price: 268.45, change: +4.10, changePct: +1.55, ma5: 263.80, ma60: 258.20, ma20: 251.60,
+      events: [],
+      eval: '**半导体板块 ETF，NVDA + TSMC 权重最大。** 跟着英伟达呼吸。若觉得选个股有风险，又想吃半导体红利，这是省心的选择。' },
+    XLV: { price: 152.83, change: +0.28, changePct: +0.18, ma5: 152.45, ma60: 151.90, ma20: 151.20,
+      events: ['礼来除息日 5/20'],
+      eval: '**防御板块代表，波动率最低。** 价格贴着均线走，没有明显方向。GLP-1 减肥药与肿瘤创新药仍是长期主线。市场恐慌时它最抗跌。' },
+    XLP: { price: 81.45, change: -0.31, changePct: -0.38, ma5: 81.78, ma60: 81.95, ma20: 82.10,
+      events: [],
+      eval: '**跌破所有均线，本周表现最弱的防御板块之一。** 消费股压力来自通胀回落后的提价能力下降。短期不建议加仓，等回踩 80 关口企稳再看。' }
+  },
+  news: [
+    { headline: '美联储5月会议纪要释放鸽派信号', type: 'fed',
+      summary: '纪要显示多数官员认为通胀粘性虽然存在，但已不构成进一步加息理由。市场对9月降息的概率定价从 45% 抬升到 62%。10年期美债收益率应声回落至 4.21%。',
+      tags: ['美联储','利率','宏观'] },
+    { headline: '英伟达财报临近，期权隐含波动 ±9%', type: 'big',
+      summary: '5月28日盘后将公布Q1业绩。华尔街共识：营收同比 +75%，毛利率维持 75%+。市场最关心 Blackwell 出货节奏与中国市场补丁版芯片的销售情况。',
+      tags: ['NVDA','财报','AI'] },
+    { headline: '科技七巨头本周分歧加大', type: 'default',
+      summary: 'GOOG、MSFT、NVDA 创新高，AAPL、TSLA 表现平淡。资金从"防御科技"切换到"AI 直接受益方"，这种内部分化已持续 6 周。',
+      tags: ['MAG7','轮动'] },
+    { headline: '中美关税磋商进入"对等回滚"阶段', type: 'default',
+      summary: '消息称双方在日内瓦敲定了未来 90 天降低关税的框架。半导体、新能源车关税降幅最大。SMH 与中概板块本周跑赢大盘 3%。',
+      tags: ['关税','宏观','SMH'] },
+    { headline: '原油跌破 70 美元，能源板块拖累指数', type: 'default',
+      summary: 'OPEC+ 增产预期与美国库存超预期上升双重打压油价。XLE 本周累计跌 1.48%，是表现最差的板块。短期反弹需要地缘事件或库存数据反转。',
+      tags: ['原油','XLE','能源'] },
+    { headline: '比特币重回 10 万美元，币股联动', type: 'default',
+      summary: 'BTC 反弹推动 COIN、MSTR 大涨。机构对现货 ETF 持仓继续增加。加密叙事重新进入主流视野，但波动依旧大，不建议小白追涨。',
+      tags: ['加密','BTC','风险偏好'] }
+  ],
+  strategy: {
+    pain: ['追高 NVDA 财报，财报后波动方向无法控制', '想买点防御股，但 XLP/XLU 又跌跌不休', '不知道现在加仓 VOO 是否合理'],
+    issue: ['市场内部分化严重，板块轮动加速，单一押注容易踏空', '财报季个股 gap 风险高，仓位管理比方向判断更重要', '降息预期已被部分定价，宏观利好兑现后可能"利好出尽"'],
+    env: '低 VIX + 鸽派纪要 + 关税缓和，整体偏多但已不便宜。大盘指数距历史新高仅 1% 左右，向上空间有限，向下有美联储托底。属于"赚钱不易但也不该满仓做空"的窗口期。',
+    play: ['核心仓位：VOO/QQQM 持仓不动，作为底仓吃 Beta', '卫星仓位：NVDA 财报前减仓一半，等业绩落地再决定', '防御对冲：XLV 替代 XLP，医疗比必需消费更值得配置', '现金管理：保留 15-20% 现金，等回调机会', '一句话：别在新高追涨，别在恐慌割肉，定投永远不错']
+  },
+  tips: {
+    title: '🎯 今日小白功课',
+    sub: 'Today\'s Lesson for Beginners',
+    items: [
+      { h: '看懂均线说的话',
+        p: '5/10/20 日均线就是过去 5/10/20 天的收盘价平均值。股价站在均线上方=多头（强势），跌破=空头（弱势）。三条均线从上到下排列叫"多头排列"，反之叫"空头排列"。看一眼今天 TSLA 和 XLP 的图，你就秒懂什么叫"多头"和"空头"。' },
+      { h: '为什么 VIX 低反而要小心',
+        p: 'VIX 在 12-15 之间往往意味着市场"过度乐观"，机构反而开始悄悄买保险。历史上很多大跌都发生在 VIX 异常低之后。不是说要立刻清仓，而是别在这种时候上杠杆、别 All-in 单一个股。' },
+      { h: '财报前的两个铁律',
+        p: '一：财报前 1-2 天不开新仓——你赌的不是基本面，是"市场如何反应"，胜率和抛硬币差不多。二：财报前如果已经赚了 30%+，至少减掉一半仓位锁定利润。NVDA 这周就是教材级案例。' },
+      { h: 'ETF vs 个股，选哪个',
+        p: '如果你每周看研报不到 1 小时，老老实实买 VOO/QQQM 这种宽基 ETF。个股需要你持续跟踪基本面、产业链、管理层。"懒"是优点不是缺点——巴菲特一辈子推荐普通人买指数基金，不是没原因的。' }
+    ]
+  }
+};
+
+// ==========================================================================
+// 状态管理 + localStorage
+// ==========================================================================
+const STORAGE = {
+  WATCHLIST: 'sb_watchlist_v1',
+  HISTORY:   'sb_history_v1',     // { 'YYYY-MM-DD': { ...snapshot } }
+  AI_CACHE:  'sb_ai_cache_v1',    // { 'YYYY-MM-DD': { stockEvals, strategy, news, tips, generatedAt } }
+  GURU_CACHE:'sb_guru_cache_v1',  // { 'YYYY-MM-DD:SYM': { gurus, consensus, generatedAt } }
+};
+
+function loadAiCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE.AI_CACHE);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return {};
+}
+function saveAiCache(cache) {
+  // 只保留最近 7 天
+  const dates = Object.keys(cache).sort().reverse().slice(0, 7);
+  const trimmed = {};
+  for (const d of dates) trimmed[d] = cache[d];
+  localStorage.setItem(STORAGE.AI_CACHE, JSON.stringify(trimmed));
+}
+function loadGuruCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE.GURU_CACHE);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return {};
+}
+function saveGuruCache(cache) {
+  const keys = Object.keys(cache).sort().reverse().slice(0, 40);
+  const trimmed = {};
+  for (const k of keys) trimmed[k] = cache[k];
+  localStorage.setItem(STORAGE.GURU_CACHE, JSON.stringify(trimmed));
+}
+
+function loadWatchlist() {
+  try {
+    const raw = localStorage.getItem(STORAGE.WATCHLIST);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) return arr;
+    }
+  } catch(e) {}
+  return [...DEFAULT_WATCHLIST];
+}
+function saveWatchlist(list) {
+  localStorage.setItem(STORAGE.WATCHLIST, JSON.stringify(list));
+}
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE.HISTORY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return {};
+}
+function saveHistory(h) {
+  localStorage.setItem(STORAGE.HISTORY, JSON.stringify(h));
+}
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+let state = {
+  watchlist: loadWatchlist(),
+  history: loadHistory(),
+  aiCache: loadAiCache(),
+  guruCache: loadGuruCache(),
+  currentDate: 'today',     // 'today' | 'YYYY-MM-DD'
+  currentSnapshot: null,
+  dataSource: 'demo',       // 'live' | 'cached' | 'demo'
+  aiGenerating: false,
+  guruGenerating: false,
+  stockView: (localStorage.getItem('sb_stock_view') === 'list') ? 'list' : 'card',
+  expandedStocks: new Set(),
+};
+
+// ==========================================================================
+// 数据获取：通过 Cloudflare Worker 后端代理 Yahoo Finance
+// ==========================================================================
+// ⚠️ 重要：把 API_BASE 改成你部署的 Cloudflare Worker 地址
+// 比如：'https://stockbrief-api.your-name.workers.dev'
+// 部署说明见 部署说明.md
+const API_BASE = localStorage.getItem('sb_api_base') || '';
+
+function getApiBase() {
+  return API_BASE || localStorage.getItem('sb_api_base') || '';
+}
+
+async function fetchBatch(symbols) {
+  const base = getApiBase();
+  if (!base) throw new Error('未配置后端地址。请在右上角 ⚙ 设置中填入 Cloudflare Worker 地址。');
+  const url = base.replace(/\/$/, '') + '/api/batch?symbols=' + encodeURIComponent(symbols.join(','));
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('后端返回 HTTP ' + resp.status);
+  const j = await resp.json();
+  if (j.error) throw new Error(j.error);
+  return j.data || {};
+}
+
+async function fetchAll() {
+  setStatus('live', '正在通过后端拉取实时数据…');
+
+  // 一次性把所有需要的 symbol 打包请求
+  const allSymbols = [
+    ...INDICES.map(i => i.sym),
+    '^VIX',
+    ...SECTORS.map(s => s.sym),
+    ...state.watchlist
+  ];
+  // 去重
+  const unique = [...new Set(allSymbols)];
+
+  const data = await fetchBatch(unique);
+
+  const snap = {
+    date: todayStr(),
+    marketStatus: '实时数据 · ' + new Date().toLocaleString('zh-CN'),
+    indices: [],
+    vix: null,
+    sectors: [],
+    stocks: {},
+    news: DEMO_DATA.news,         // 新闻 / 策略 / 小贴士 仍用预生成内容
+    strategy: DEMO_DATA.strategy,
+    tips: DEMO_DATA.tips
+  };
+
+  // 大盘
+  snap.indices = INDICES.map(i => {
+    const d = data[i.sym.toUpperCase()];
+    if (!d || d.error) {
+      const demo = DEMO_DATA.indices.find(x => x.sym === i.sym);
+      return demo || { ...i, price: 0, change: 0, changePct: 0 };
+    }
+    return { sym: i.sym, name: i.name, price: d.price, change: d.change, changePct: d.changePct };
+  });
+
+  // VIX
+  const vixData = data['^VIX'];
+  if (vixData && !vixData.error) {
+    snap.vix = { value: vixData.price, change: vixData.change, changePct: vixData.changePct };
+  } else {
+    snap.vix = DEMO_DATA.vix;
+  }
+
+  // 板块（按涨跌幅排序）
+  snap.sectors = SECTORS.map(s => {
+    const d = data[s.sym.toUpperCase()];
+    if (!d || d.error) {
+      const demo = DEMO_DATA.sectors.find(x => x.sym === s.sym);
+      return demo || { ...s, chg: 0 };
+    }
+    return { sym: s.sym, name: s.name, chg: d.changePct };
+  }).sort((a, b) => b.chg - a.chg);
+
+  // 自选股
+  for (const sym of state.watchlist) {
+    const d = data[sym.toUpperCase()];
+    if (d && !d.error) {
+      // 计算今天距离均线的百分比 → 用于自动生成简短文字评价
+      const evalText = buildEvalText(d);
+      const demoEvents = (DEMO_DATA.stocks[sym] && DEMO_DATA.stocks[sym].events) || [];
+      const events = [...demoEvents];
+      // 如果 Yahoo 返回了近 90 天内的股息事件，加上去
+      if (d.dividend) {
+        events.push(`派息 $${d.dividend.amount.toFixed(2)} · ${d.dividend.date}`);
+      }
+      snap.stocks[sym] = {
+        price: d.price,
+        change: d.change,
+        changePct: d.changePct,
+        ma5: d.ma5,
+        ma60: d.ma60,
+        ma20: d.ma20,
+        closes: d.closes || [],
+        events,
+        eval: evalText
+      };
+    } else {
+      // 后端拉这只失败 → 用 demo / 占位
+      const demo = DEMO_DATA.stocks[sym];
+      if (demo) {
+        snap.stocks[sym] = demo;
+      } else {
+        snap.stocks[sym] = {
+          price: 0, change: 0, changePct: 0,
+          ma5: null, ma60: null, ma20: null,
+          events: [],
+          eval: '*这只暂时拉不到数据：' + (d?.error || '请检查代码是否正确') + '*'
+        };
+      }
+    }
+  }
+  return snap;
+}
+
+// 根据实时数据自动生成一句简短评价（替代静态 demo eval）
+function buildEvalText(d) {
+  const p = d.price;
+  const conds = [];
+  let posCount = 0, negCount = 0;
+  [['MA5', d.ma5], ['MA20', d.ma20], ['MA60', d.ma60]].forEach(([k, v]) => {
+    if (v == null) return;
+    const diff = ((p - v) / v) * 100;
+    if (diff > 0.3) posCount++;
+    else if (diff < -0.3) negCount++;
+  });
+  let trend, color;
+  if (posCount === 3) { trend = '**多头排列，三线之上**'; color = '短线强势'; }
+  else if (negCount === 3) { trend = '**空头排列，跌破三线**'; color = '短线弱势'; }
+  else if (posCount === 2) { trend = '**站稳主要均线**'; color = '偏多整理'; }
+  else if (negCount === 2) { trend = '**跌破主要均线**'; color = '偏空整理'; }
+  else { trend = '**多空胶着**'; color = '观望为主'; }
+
+  let momentum = '';
+  if (d.changePct > 2) momentum = '今日强势上涨，注意短线追高风险。';
+  else if (d.changePct > 0.5) momentum = '今日小幅走高。';
+  else if (d.changePct < -2) momentum = '今日大幅回落，关注是否企稳。';
+  else if (d.changePct < -0.5) momentum = '今日小幅下跌。';
+  else momentum = '今日窄幅震荡。';
+
+  return `${trend}，${color}。${momentum}`;
+}
+
+// ==========================================================================
+// 渲染
+// ==========================================================================
+function fmt(n, d=2) {
+  if (n == null || !isFinite(n)) return '—';
+  return Number(n).toFixed(d);
+}
+function fmtSigned(n, d=2) {
+  if (n == null || !isFinite(n)) return '—';
+  const s = Number(n).toFixed(d);
+  return n >= 0 ? '+' + s : s;
+}
+function pnClass(n) { return n > 0 ? 'pos' : (n < 0 ? 'neg' : 'neu'); }
+function arrow(n) { return n > 0 ? '▲' : (n < 0 ? '▼' : '◆'); }
+
+function renderIndices(arr) {
+  const el = document.getElementById('indices');
+  el.innerHTML = arr.map(i => `
+    <div class="index-cell">
+      <span class="sym">${i.sym}</span>
+      <span class="name">${i.name}</span>
+      <span class="price">${fmt(i.price)}</span>
+      <span class="change ${pnClass(i.change)}">${arrow(i.change)} ${fmtSigned(i.change)} (${fmtSigned(i.changePct)}%)</span>
+    </div>
+  `).join('');
+}
+
+function renderVix(v) {
+  const el = document.getElementById('vix-block');
+  const cls = pnClass(v.change);
+  let mood = '';
+  if (v.value < 15) mood = '市场过度乐观——VIX < 15 是历史上常见的"风暴前夜"，不是清仓信号，但要警惕单一押注与杠杆使用。';
+  else if (v.value < 20) mood = '正常区间——市场情绪平稳，没有恐慌也没有狂热。常态化交易窗口。';
+  else if (v.value < 30) mood = '恐慌抬头——VIX 进入 20-30 区间，机构开始加仓对冲。可以择机分批吸纳优质标的。';
+  else mood = '极度恐慌——VIX > 30 是历史上长期投资者的黄金播种期，但短线波动剧烈，不要满仓抄底。';
+  el.innerHTML = `
+    <div class="vix-row">
+      <span class="vix-label">VIX</span>
+      <span class="vix-value ${cls}">${fmt(v.value)}</span>
+      <span class="vix-change ${cls}">${arrow(v.change)} ${fmtSigned(v.change)} (${fmtSigned(v.changePct)}%)</span>
+    </div>
+    <div class="vix-desc">${mood}</div>
+  `;
+}
+
+function renderSectors(arr) {
+  // 按涨幅排序（已在 fetchAll 中排序，这里再排一次保险）
+  const sorted = [...arr].sort((a, b) => b.chg - a.chg);
+  const html = sorted.map(s => `
+    <div class="sector-pill">
+      <span class="name">${s.name}</span>
+      <span class="chg ${pnClass(s.chg)}">${fmtSigned(s.chg)}%</span>
+    </div>
+  `).join('');
+  document.getElementById('sectors-compact').innerHTML = html || '<div class="history-empty">—</div>';
+}
+
+function maBar(price, ma) {
+  if (price == null || ma == null) return '<div class="ma-bar-track"></div>';
+  const diff = ((price - ma) / ma) * 100;
+  const isPos = diff >= 0;
+  // 视觉映射：±5% 映射到 0-50%
+  const w = Math.min(Math.abs(diff) / 5 * 50, 50);
+  const fromCenter = isPos
+    ? `left:50%; width:${w}%;`
+    : `right:50%; width:${w}%;`;
+  return `
+    <div class="ma-bar-track">
+      <div class="ma-marker"></div>
+      <div class="ma-bar-fill ${isPos?'pos':'neg'}" style="${fromCenter}"></div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+// 简易 markdown：**粗体** + *斜体*
+function mdInline(s) {
+  if (s == null) return '';
+  return escapeHtml(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+// ---------- MA position pill ----------
+function maPill(price, ma) {
+  if (price == null || ma == null || !isFinite(ma)) return '<span class="ma-pill unknown">—</span>';
+  const diff = ((price - ma) / ma) * 100;
+  if (diff >  3)   return `<span class="ma-pill far-pos">远高于</span>`;
+  if (diff >  0.3) return `<span class="ma-pill pos">高于</span>`;
+  if (diff > -0.3) return `<span class="ma-pill flat">持平</span>`;
+  if (diff > -3)   return `<span class="ma-pill neg">低于</span>`;
+  return `<span class="ma-pill far-neg">远低于</span>`;
+}
+
+// ---------- 30-day SVG mini chart (with Y-axis + gridlines) ----------
+function renderMiniChart(closes, sym) {
+  if (!closes || closes.length < 2) {
+    return '<div class="chart-empty">暂无历史走势数据（刷新实时数据后可用）</div>';
+  }
+  const W = 580, H = 180;
+  const PAD = { top: 14, right: 14, bottom: 24, left: 56 };  // left wider for Y labels
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const rawRange = max - min || 1;
+  // Add 5% padding above and below
+  const padPct = 0.05;
+  const yMin = min - rawRange * padPct;
+  const yMax = max + rawRange * padPct;
+  const yRange = yMax - yMin;
+
+  const n = closes.length;
+  const xStep = chartW / (n - 1);
+
+  const toX = i => PAD.left + i * xStep;
+  const toY = v => PAD.top + chartH * (1 - (v - yMin) / yRange);
+
+  const pts = closes.map((v, i) => [toX(i), toY(v)]);
+  const pathD = pts.map((p, i) => (i === 0 ? `M` : `L`) + ` ${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const areaD = pathD + ` L ${pts[n-1][0].toFixed(1)},${(PAD.top + chartH).toFixed(1)} L ${pts[0][0].toFixed(1)},${(PAD.top + chartH).toFixed(1)} Z`;
+
+  const isUp = closes[n-1] >= closes[0];
+  const lineClr = isUp ? '#22c55e' : '#ef4444';
+  const fillId = `cg_${sym}_${Math.random().toString(36).slice(2,6)}`;
+
+  // Y gridlines: pick 4 evenly-spaced "nice" price levels
+  const nGrids = 4;
+  const gridStep = yRange / (nGrids - 1);
+  const gridLines = Array.from({ length: nGrids }, (_, i) => {
+    const price = yMin + gridStep * i;
+    const y = toY(price).toFixed(1);
+    return { price, y };
+  });
+
+  // X-axis: show first, last, and 2 middle dates (just as "Day N")
+  const xLabels = [0, Math.floor(n/3), Math.floor(2*n/3), n-1].map(i => ({
+    x: toX(i).toFixed(1),
+    label: i === 0 ? `Day 1` : i === n-1 ? `今日` : `Day ${i+1}`
+  }));
+
+  const totalPct = ((closes[n-1] - closes[0]) / closes[0] * 100);
+  const pctLabel = (totalPct >= 0 ? '+' : '') + totalPct.toFixed(2) + '%';
+  const pctCls = isUp ? 'pos' : 'neg';
+
+  // Build gridline SVG elements
+  const gridSvg = gridLines.map(g => `
+    <line x1="${PAD.left}" y1="${g.y}" x2="${(PAD.left + chartW).toFixed(1)}" y2="${g.y}"
+      stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,4"/>
+    <text x="${(PAD.left - 6).toFixed(1)}" y="${g.y}" text-anchor="end" dominant-baseline="middle"
+      font-family="monospace" font-size="9" fill="rgba(139,149,168,0.8)">${fmt(g.price, 1)}</text>
+  `).join('');
+
+  // X-axis labels
+  const xLabelSvg = xLabels.map(l => `
+    <text x="${l.x}" y="${(PAD.top + chartH + 14).toFixed(1)}" text-anchor="middle"
+      font-family="monospace" font-size="9" fill="rgba(90,100,120,0.9)">${l.label}</text>
+  `).join('');
+
+  // Current price horizontal dashed line
+  const lastY = toY(closes[n-1]).toFixed(1);
+  const lastPrice = closes[n-1];
+  const priceLine = `
+    <line x1="${PAD.left}" y1="${lastY}" x2="${(PAD.left + chartW).toFixed(1)}" y2="${lastY}"
+      stroke="${lineClr}" stroke-width="1" stroke-dasharray="5,3" opacity="0.5"/>
+    <text x="${(PAD.left + chartW + 3).toFixed(1)}" y="${lastY}" dominant-baseline="middle"
+      font-family="monospace" font-size="9" fill="${lineClr}">${fmt(lastPrice, 2)}</text>
+  `;
+
+  return `
+    <div class="chart-head">
+      <span class="chart-label">近 ${n} 日收盘价走势</span>
+      <span class="chart-range ${pctCls}">${fmt(closes[0])} → ${fmt(lastPrice)} <strong>(${pctLabel})</strong></span>
+    </div>
+    <svg class="chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="max-height:180px;overflow:visible;">
+      <defs>
+        <linearGradient id="${fillId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${lineClr}" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="${lineClr}" stop-opacity="0"/>
+        </linearGradient>
+        <clipPath id="clip_${fillId}">
+          <rect x="${PAD.left}" y="${PAD.top}" width="${chartW}" height="${chartH}"/>
+        </clipPath>
+      </defs>
+      ${gridSvg}
+      <path d="${areaD}" fill="url(#${fillId})" clip-path="url(#clip_${fillId})"/>
+      <path d="${pathD}" fill="none" stroke="${lineClr}" stroke-width="1.8"
+        stroke-linejoin="round" stroke-linecap="round" clip-path="url(#clip_${fillId})"/>
+      ${priceLine}
+      <circle cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="3" fill="${lineClr}"/>
+      ${xLabelSvg}
+    </svg>
+  `;
+}
+
+// ---------- Toggle chart expansion ----------
+function toggleStockChart(sym) {
+  if (state.expandedStocks.has(sym)) {
+    state.expandedStocks.delete(sym);
+  } else {
+    state.expandedStocks.add(sym);
+  }
+  renderStocks(state.currentSnapshot?.stocks || {});
+}
+
+// ---------- Set view (card / list) ----------
+function setStockView(view) {
+  state.stockView = view;
+  localStorage.setItem('sb_stock_view', view);
+  // Update toggle buttons
+  document.querySelectorAll('#view-toggle button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+  renderStocks(state.currentSnapshot?.stocks || {});
+}
+
+// ---------- Main renderStocks dispatcher ----------
+function renderStocks(stocks) {
+  const container = document.getElementById('stock-container');
+  const meta = document.getElementById('watchlist-meta');
+  meta.textContent = `${state.watchlist.length} 只`;
+  if (state.watchlist.length === 0) {
+    container.innerHTML = '<div class="history-empty">自选股列表为空，请添加股票代码（如 AMD、META、AMZN）</div>';
+    return;
+  }
+  if (state.stockView === 'list') {
+    renderStockList(container, stocks);
+  } else {
+    renderStockCards(container, stocks);
+  }
+}
+
+// ---------- Card view ----------
+function renderStockCards(container, stocks) {
+  container.innerHTML = `<div class="stock-grid" id="stock-grid">${
+    state.watchlist.map(sym => {
+      const s = stocks[sym];
+      const isExpanded = state.expandedStocks.has(sym);
+      if (!s) return `
+        <div class="stock-card">
+          <button class="remove-btn" data-sym="${sym}">×</button>
+          <div class="stock-head">
+            <div class="stock-title">
+              <span class="stock-sym">${escapeHtml(sym)}</span>
+              <span class="stock-name">${escapeHtml(STOCK_NAMES[sym]||'')}</span>
+            </div>
+          </div>
+          <div class="history-empty" style="margin-top:14px;">暂无数据</div>
+        </div>`;
+      const eventsHtml = (s.events && s.events.length)
+        ? `<div class="stock-events">${s.events.map(e => {
+            const cls = e.includes('派息') || e.includes('除息') ? 'event-tag dividend' : 'event-tag';
+            return `<span class="${cls}">${escapeHtml(e)}</span>`;
+          }).join('')}</div>` : '';
+      const chartHtml = isExpanded
+        ? `<div class="stock-chart-panel">${renderMiniChart(s.closes, sym)}</div>` : '';
+      return `
+        <div class="stock-card">
+          <button class="remove-btn" data-sym="${sym}" title="移除">×</button>
+          <div class="stock-head">
+            <div class="stock-title">
+              <span class="stock-sym clickable${isExpanded?' expanded':''}" data-chart-sym="${sym}" title="点击查看 30 日走势">${escapeHtml(sym)}</span>
+              <span class="stock-name">${escapeHtml(STOCK_NAMES[sym]||'')}</span>
+            </div>
+            <button class="btn btn-small guru-btn" data-sym="${sym}" title="用多位投资大师视角分析 ${sym}">大师会诊</button>
+          </div>
+          <div class="stock-price-row">
+            <span class="stock-price">${fmt(s.price)}</span>
+            <span class="stock-change ${pnClass(s.change)}">${arrow(s.change)} ${fmtSigned(s.change)} (${fmtSigned(s.changePct)}%)</span>
+          </div>
+          ${chartHtml}
+          <div class="ma-block">
+            <div class="ma-row"><span class="ma-label">MA5</span>${maBar(s.price, s.ma5)}<span class="ma-val">${fmt(s.ma5)}</span></div>
+            <div class="ma-row"><span class="ma-label">MA20</span>${maBar(s.price, s.ma20)}<span class="ma-val">${fmt(s.ma20)}</span></div>
+            <div class="ma-row"><span class="ma-label">MA60</span>${maBar(s.price, s.ma60)}<span class="ma-val">${fmt(s.ma60)}</span></div>
+          </div>
+          ${s.eval ? `<div class="stock-eval${s.evalIsAi ? ' ai-generated' : ''}">${mdInline(s.eval)}</div>` : ''}
+          ${eventsHtml}
+        </div>`;
+    }).join('')
+  }</div>`;
+  _bindStockEvents(container);
+}
+
+// ---------- List view ----------
+function renderStockList(container, stocks) {
+  const rows = state.watchlist.map(sym => {
+    const s = stocks[sym];
+    const isExpanded = state.expandedStocks.has(sym);
+    if (!s) return `
+      <tr>
+        <td class="col-sym"><span class="clickable-sym" data-chart-sym="${sym}">${escapeHtml(sym)}</span><br><span style="font-size:10px;color:var(--text-faint)">${escapeHtml(STOCK_NAMES[sym]||'')}</span></td>
+        <td colspan="6" style="color:var(--text-faint);font-size:12px;">暂无数据</td>
+        <td class="col-actions"><button class="row-remove" data-sym="${sym}">×</button></td>
+      </tr>`;
+    const chartRow = isExpanded ? `
+      <tr class="chart-row" data-chart-for="${sym}">
+        <td colspan="8">
+          <div class="stock-chart-panel">${renderMiniChart(s.closes, sym)}</div>
+        </td>
+      </tr>` : '';
+    return `
+      <tr>
+        <td class="col-sym">
+          <span class="clickable-sym${isExpanded?' expanded':''}" data-chart-sym="${sym}" title="点击查看 30 日走势">${escapeHtml(sym)}</span><br>
+          <span style="font-size:10px;color:var(--text-faint)">${escapeHtml(STOCK_NAMES[sym]||'')}</span>
+        </td>
+        <td class="col-price">\$${fmt(s.price)}</td>
+        <td class="col-chg ${pnClass(s.change)}">${arrow(s.change)} ${fmtSigned(s.changePct)}%</td>
+        <td class="col-ma">${maPill(s.price, s.ma5)}</td>
+        <td class="col-ma">${maPill(s.price, s.ma20)}</td>
+        <td class="col-ma">${maPill(s.price, s.ma60)}</td>
+        <td class="col-eval">${s.eval ? mdInline(s.eval) : '—'}</td>
+        <td class="col-actions">
+          <button class="row-guru" data-sym="${sym}">大师会诊</button>
+          <button class="row-remove" data-sym="${sym}">×</button>
+        </td>
+      </tr>
+      ${chartRow}`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="stock-list">
+      <table class="stock-list-table">
+        <thead>
+          <tr>
+            <th>代码</th>
+            <th>价格</th>
+            <th>今日涨跌</th>
+            <th>vs MA5</th>
+            <th>vs MA20</th>
+            <th>vs MA60</th>
+            <th>AI 评价</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  _bindStockEvents(container);
+}
+
+// ---------- Shared event binding ----------
+function _bindStockEvents(container) {
+  container.querySelectorAll('.remove-btn, .row-remove').forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); removeStock(btn.dataset.sym); };
+  });
+  container.querySelectorAll('.guru-btn, .row-guru').forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); generateGuruAnalysis(btn.dataset.sym); };
+  });
+  container.querySelectorAll('[data-chart-sym]').forEach(el => {
+    el.onclick = (e) => { e.stopPropagation(); toggleStockChart(el.dataset.chartSym); };
+  });
+}
+
+function renderNews(arr) {
+  const el = document.getElementById('news-grid');
+  el.innerHTML = arr.map(n => `
+    <div class="news-item ${n.type||''}">
+      <h4>${n.headline}</h4>
+      <div class="summary">${n.summary}</div>
+      <div class="tags">${(n.tags||[]).map(t => `<span class="news-tag">#${t}</span>`).join(' ')}</div>
+    </div>
+  `).join('');
+}
+
+function renderStrategy(s) {
+  const el = document.getElementById('strategy-grid');
+  const blocks = [
+    { num: '01', accent: '痛', title: '痛点', sub: 'Pain Points', items: s.pain },
+    { num: '02', accent: '问', title: '问题', sub: 'Issues',      items: s.issue },
+    { num: '03', accent: '境', title: '环境', sub: 'Environment', text: s.env },
+    { num: '04', accent: '法', title: '打法', sub: 'Play Book',   items: s.play }
+  ];
+  el.innerHTML = blocks.map(b => `
+    <div class="strat-card" data-num="${b.num}">
+      <h3><span class="accent">${b.accent}</span>${b.title}</h3>
+      <div class="sub">${b.sub}</div>
+      ${b.items
+        ? `<ul>${b.items.map(i => `<li>${i}</li>`).join('')}</ul>`
+        : `<p>${b.text}</p>`}
+    </div>
+  `).join('');
+}
+
+function renderTips(t) {
+  document.getElementById('tips-title').textContent = t.title;
+  document.getElementById('tips-sub').textContent = t.sub;
+  document.getElementById('tips-list').innerHTML = t.items.map((it, i) => `
+    <div class="tip-item">
+      <div class="tip-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="tip-content">
+        <h4>${it.h}</h4>
+        <p>${it.p}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  const dates = Object.keys(state.history).sort().reverse();
+  if (dates.length === 0) {
+    el.innerHTML = '<div class="history-empty">暂无历史快照。点右上角"刷新数据"会保存今日快照。</div>';
+    return;
+  }
+  el.innerHTML = dates.map(d => {
+    const active = d === state.currentDate ? 'active' : '';
+    return `<span class="history-pill ${active}" data-date="${d}">${d}</span>`;
+  }).join('');
+  el.querySelectorAll('.history-pill').forEach(p => {
+    p.onclick = () => loadSnapshot(p.dataset.date);
+  });
+}
+
+function renderDatePicker() {
+  const picker = document.getElementById('date-picker');
+  const dates = Object.keys(state.history).sort().reverse();
+  const opts = ['<option value="today">今日 (实时/演示)</option>'];
+  for (const d of dates) {
+    const sel = d === state.currentDate ? 'selected' : '';
+    opts.push(`<option value="${d}" ${sel}>${d} 快照</option>`);
+  }
+  picker.innerHTML = opts.join('');
+  picker.onchange = (e) => {
+    if (e.target.value === 'today') {
+      loadDemo(); // 切回 today 显示演示/最近一次实时
+    } else {
+      loadSnapshot(e.target.value);
+    }
+  };
+}
+
+function setStatus(kind, text) {
+  state.dataSource = kind;
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  dot.className = 'dot ' + kind;
+  txt.textContent = text;
+}
+
+// ==========================================================================
+// 操作 / 事件
+// ==========================================================================
+function renderAll(snap) {
+  state.currentSnapshot = snap;
+  document.getElementById('market-status').textContent = snap.marketStatus || '';
+  document.getElementById('last-update').textContent = '更新于 ' + (snap.date || '');
+  renderIndices(snap.indices);
+  renderVix(snap.vix);
+  renderSectors(snap.sectors);
+  renderStocks(snap.stocks);
+  renderNews(snap.news);
+  renderStrategy(snap.strategy);
+  renderTips(snap.tips);
+  renderHistory();
+  renderDatePicker();
+}
+
+function loadDemo() {
+  state.currentDate = 'today';
+  setStatus('demo', '演示模式（静态数据）');
+  // 如果有今日快照，优先用今日
+  const today = todayStr();
+  if (state.history[today]) {
+    setStatus('cached', '今日快照（来自本地存档）');
+    const snap = state.history[today];
+    maybeApplyAiCache(snap);
+    renderAll(snap);
+    return;
+  }
+  // 演示数据中的自选股可能少于用户自选 → 兜底补空
+  const snap = JSON.parse(JSON.stringify(DEMO_DATA));
+  for (const sym of state.watchlist) {
+    if (!snap.stocks[sym]) {
+      snap.stocks[sym] = {
+        price: 0, change: 0, changePct: 0,
+        ma5: null, ma60: null, ma20: null,
+        events: [],
+        eval: '*这只股票不在演示数据中，点"刷新数据"拉取实时行情。*'
+      };
+    }
+  }
+  hideAiBanner();
+  document.getElementById('ai-btn').classList.remove('has-ai');
+  renderAll(snap);
+}
+
+function loadSnapshot(date) {
+  if (!state.history[date]) return;
+  state.currentDate = date;
+  setStatus('cached', `历史快照 · ${date}`);
+  const snap = state.history[date];
+  maybeApplyAiCache(snap);
+  renderAll(snap);
+}
+
+async function refreshData() {
+  const btn = document.getElementById('refresh-btn');
+  const original = btn.textContent;
+  btn.textContent = '拉取中…';
+  btn.disabled = true;
+  try {
+    const snap = await fetchAll();
+    // 存今日快照
+    state.history[snap.date] = snap;
+    saveHistory(state.history);
+    state.currentDate = snap.date;
+    maybeApplyAiCache(snap);
+    renderAll(snap);
+    setStatus('live', '实时数据 · 已保存今日快照');
+  } catch(e) {
+    console.error(e);
+    setStatus('demo', '拉取失败 → 回退到演示数据');
+    loadDemo();
+    const apiBase = localStorage.getItem('sb_api_base');
+    let hint = '';
+    if (!apiBase) {
+      hint = '\n\n你还没设置后端地址。\n点右上角 ⚙ → 选 1 → 填入你的 Cloudflare Worker 地址。';
+    } else {
+      hint = `\n\n当前后端：${apiBase}\n\n可能原因：\n1. Worker 还没部署成功 → 浏览器打开 ${apiBase}/api/health 检查\n2. Yahoo 临时不可用 → 稍后重试\n3. Worker URL 拼写错误 → 点 ⚙ 重新设置`;
+    }
+    alert('实时数据拉取失败：\n' + (e.message || e) + hint);
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
+  }
+}
+
+// ==========================================================================
+// AI 评价生成
+// ==========================================================================
+function setAiBanner(state_, text, meta) {
+  const banner = document.getElementById('ai-banner');
+  const t = document.getElementById('ai-banner-text');
+  const m = document.getElementById('ai-banner-meta');
+  banner.style.display = 'flex';
+  banner.className = 'ai-banner' + (state_ ? ' ' + state_ : '');
+  t.textContent = text;
+  m.textContent = meta || '';
+}
+function hideAiBanner() {
+  document.getElementById('ai-banner').style.display = 'none';
+}
+
+function applyAiContent(snap, ai) {
+  // 把 AI 生成的内容覆盖到当前 snapshot 上
+  if (ai.stockEvals) {
+    for (const sym of Object.keys(snap.stocks)) {
+      if (ai.stockEvals[sym]) {
+        snap.stocks[sym] = {
+          ...snap.stocks[sym],
+          eval: ai.stockEvals[sym],
+          evalIsAi: true,
+        };
+      }
+    }
+  }
+  if (ai.strategy) snap.strategy = ai.strategy;
+  if (ai.news && ai.news.length) snap.news = ai.news;
+  if (ai.tips) snap.tips = ai.tips;
+  snap.aiGeneratedAt = ai.generatedAt;
+  return snap;
+}
+
+async function generateAi() {
+  if (state.aiGenerating) return;
+  if (!state.currentSnapshot) {
+    alert('请先点"刷新数据"拉取实时行情，再生成 AI 评价。');
+    return;
+  }
+  const base = localStorage.getItem('sb_api_base');
+  if (!base) {
+    alert('请先在 ⚙ 设置中配置后端地址。');
+    return;
+  }
+
+  // 如果今日已有缓存，提示用户
+  const today = state.currentSnapshot.date || todayStr();
+  if (state.aiCache[today]) {
+    const ok = confirm(`今日（${today}）已有 AI 评价缓存。\n\n` +
+      `生成时间：${new Date(state.aiCache[today].generatedAt).toLocaleString('zh-CN')}\n\n` +
+      `重新生成会消耗一次额度（${4} 次/天上限）。是否继续？\n\n` +
+      `如果只想看缓存内容，请取消。`);
+    if (!ok) {
+      // 应用现有缓存
+      applyAiContent(state.currentSnapshot, state.aiCache[today]);
+      renderAll(state.currentSnapshot);
+      setAiBanner('', `AI 评价 · 缓存`, `生成于 ${new Date(state.aiCache[today].generatedAt).toLocaleString('zh-CN')}`);
+      return;
+    }
+  }
+
+  state.aiGenerating = true;
+  const btn = document.getElementById('ai-btn');
+  btn.disabled = true;
+  btn.textContent = '✨ 生成中…';
+  setAiBanner('generating', 'Claude 正在分析今日行情数据，生成评价中…', '通常需要 15-30 秒');
+
+  try {
+    const url = base.replace(/\/$/, '') + '/api/ai-generate';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot: state.currentSnapshot }),
+    });
+    const j = await resp.json();
+
+    if (!resp.ok || j.error) {
+      // 限流 (429) 单独处理
+      if (resp.status === 429) {
+        setAiBanner('error', j.error || '调用次数已达上限', '');
+        alert(j.error || '调用次数已达上限');
+      } else {
+        setAiBanner('error', 'AI 生成失败：' + (j.error || '未知错误'), '');
+        alert('AI 生成失败：\n' + (j.error || '未知错误'));
+      }
+      return;
+    }
+
+    // 成功
+    const ai = { ...j.data, generatedAt: j.generatedAt };
+    state.aiCache[today] = ai;
+    saveAiCache(state.aiCache);
+
+    applyAiContent(state.currentSnapshot, ai);
+    // 同时把当天的 history 也更新（这样切回这天还能看到 AI 内容）
+    if (state.history[today]) {
+      applyAiContent(state.history[today], ai);
+      saveHistory(state.history);
+    }
+    renderAll(state.currentSnapshot);
+
+    const remaining = j.remaining ? `今日剩余：你 ${j.remaining.ip} 次 / 全局 ${j.remaining.global} 次` : '';
+    setAiBanner('', `✨ AI 评价已生成`, remaining);
+    btn.classList.add('has-ai');
+
+  } catch(e) {
+    console.error(e);
+    setAiBanner('error', 'AI 生成失败：' + (e.message || e), '');
+    alert('AI 生成失败：\n' + (e.message || e) + '\n\n请检查：\n1. 后端是否部署了新版 worker.js\n2. Cloudflare Worker 是否配置了 ANTHROPIC_API_KEY');
+  } finally {
+    state.aiGenerating = false;
+    btn.disabled = false;
+    btn.textContent = '✨ AI 评价';
+  }
+}
+
+// 加载当前快照时自动应用已有的 AI 缓存
+function maybeApplyAiCache(snap) {
+  if (!snap) return snap;
+  const date = snap.date;
+  if (date && state.aiCache[date]) {
+    applyAiContent(snap, state.aiCache[date]);
+    setAiBanner('', `✨ AI 评价 · 缓存`, `生成于 ${new Date(state.aiCache[date].generatedAt).toLocaleString('zh-CN')}`);
+    document.getElementById('ai-btn').classList.add('has-ai');
+  } else {
+    hideAiBanner();
+    document.getElementById('ai-btn').classList.remove('has-ai');
+  }
+  return snap;
+}
+
+// ==========================================================================
+// 大师会诊
+// ==========================================================================
+// 大师会诊缓存有效期 48 小时：优先用今日 key，其次接受昨日 key
+function guruCacheKey(sym) {
+  const date = state.currentSnapshot?.date || todayStr();
+  return `${date}:${String(sym || '').toUpperCase()}`;
+}
+function guruCacheGet(sym) {
+  const todayKey = guruCacheKey(sym);
+  if (state.guruCache[todayKey]) return state.guruCache[todayKey];
+  // 昨日 key（48h 覆盖）
+  const yesterday = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0,10).replace(/-/g, '/');
+  })();
+  const yKey = `${yesterday}:${String(sym || '').toUpperCase()}`;
+  return state.guruCache[yKey] || null;
+}
+
+function setGuruModal(title, sub, html) {
+  document.getElementById('guru-title').textContent = title;
+  document.getElementById('guru-sub').textContent = sub || 'AI Hedge Fund style council';
+  document.getElementById('guru-body').innerHTML = html;
+  document.getElementById('guru-modal').hidden = false;
+}
+
+function closeGuruModal() {
+  document.getElementById('guru-modal').hidden = true;
+}
+
+function stanceClass(stance) {
+  const s = String(stance || '').toLowerCase();
+  if (s.includes('bull') || s.includes('看多') || s.includes('买入')) return 'bullish';
+  if (s.includes('bear') || s.includes('看空') || s.includes('卖出')) return 'bearish';
+  return 'neutral';
+}
+
+function stanceText(stance) {
+  const cls = stanceClass(stance);
+  if (cls === 'bullish') return '看多';
+  if (cls === 'bearish') return '看空';
+  return '中性';
+}
+
+function listHtml(items) {
+  const arr = Array.isArray(items) ? items : (items ? [items] : []);
+  if (!arr.length) return '<li>暂无明确结论。</li>';
+  return arr.map(x => `<li>${mdInline(x)}</li>`).join('');
+}
+
+function renderGuruResult(sym, result) {
+  const consensus = result.consensus || {};
+  const gurus = Array.isArray(result.gurus) ? result.gurus : [];
+  const generated = result.generatedAt ? new Date(result.generatedAt).toLocaleString('zh-CN') : '刚刚';
+  const consensusHtml = `
+    <div class="guru-consensus">
+      <h3>${escapeHtml(consensus.decision || `${sym} 综合结论`)}</h3>
+      <p>${mdInline(consensus.summary || '多位大师视角已完成会诊。')}</p>
+      <div class="guru-metric">
+        <span>风险等级</span>
+        <strong>${escapeHtml(consensus.riskLevel || '—')}</strong>
+      </div>
+    </div>
+  `;
+  const cardsHtml = gurus.map(g => `
+    <article class="guru-card">
+      <div class="guru-card-head">
+        <div>
+          <div class="guru-name">${escapeHtml(g.name || '投资大师')}</div>
+          <div class="guru-role">${escapeHtml(g.title || g.philosophy || '')}</div>
+        </div>
+        <span class="guru-stance ${stanceClass(g.stance)}">${stanceText(g.stance)}</span>
+      </div>
+      <div class="guru-metric">
+        <span>置信度</span>
+        <strong>${escapeHtml(g.confidence ?? '—')}${g.confidence != null ? '%' : ''}</strong>
+      </div>
+      <div class="guru-metric">
+        <span>时间框架</span>
+        <strong>${escapeHtml(g.horizon || '—')}</strong>
+      </div>
+      <h4>核心理由</h4>
+      <ul>${listHtml(g.thesis)}</ul>
+      <h4>主要风险</h4>
+      <ul>${listHtml(g.concerns)}</ul>
+      <h4>关注信号</h4>
+      <ul>${listHtml(g.watchlist)}</ul>
+      <div class="guru-action">${mdInline(g.action || '当前建议保持观察，等待更清晰的价格或基本面信号。')}</div>
+    </article>
+  `).join('');
+
+  setGuruModal(
+    `${sym} 大师会诊`,
+    `生成于 ${generated} · 参考 ai-hedge-fund 多代理风格`,
+    consensusHtml + `<div class="guru-grid">${cardsHtml}</div>`
+  );
+}
+
+async function generateGuruAnalysis(symRaw, force=false) {
+  const sym = String(symRaw || '').toUpperCase();
+  if (!sym || state.guruGenerating) return;
+  if (!state.currentSnapshot || !state.currentSnapshot.stocks?.[sym]) {
+    alert('请先刷新或加载包含这只股票的数据。');
+    return;
+  }
+  const base = localStorage.getItem('sb_api_base');
+  if (!base) {
+    alert('请先在 ⚙ 设置中配置后端地址。');
+    return;
+  }
+
+  const key = guruCacheKey(sym);
+  const cached = guruCacheGet(sym);
+  if (!force && cached) {
+    renderGuruResult(sym, cached);
+    return;
+  }
+
+  state.guruGenerating = true;
+  setGuruModal(
+    `${sym} 大师会诊`,
+    '正在召集 5 位大师视角',
+    '<div class="guru-state">正在生成完整分析卡片，通常需要 15-30 秒。会诊会结合当前价格、涨跌幅、均线、VIX 和板块环境。</div>'
+  );
+
+  try {
+    const url = base.replace(/\/$/, '') + '/api/guru-analysis';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym, snapshot: state.currentSnapshot }),
+    });
+    const j = await resp.json();
+    if (!resp.ok || j.error) {
+      if (resp.status === 429) {
+        setGuruModal(`${sym} 大师会诊`, '今日额度已用完',
+          `<div class="guru-state" style="color:var(--orange);">🔒 ${escapeHtml(j.error || '大师会诊今日额度已用完')}<br><br>每人每天限 5 次，UTC 0 点自动重置。</div>`);
+        return;
+      }
+      throw new Error(j.error || '后端返回错误');
+    }
+    const result = { ...j.data, generatedAt: j.generatedAt };
+    state.guruCache[key] = result;
+    saveGuruCache(state.guruCache);
+    renderGuruResult(sym, result);
+    // 更新剩余额度提示
+    if (j.remaining != null) {
+      const rem = j.remaining.ip ?? '?';
+      const hint = document.getElementById('guru-quota-hint');
+      if (hint) hint.textContent = `今日还剩 ${rem} 次`;
+    }
+  } catch(e) {
+    console.error(e);
+    setGuruModal(
+      `${sym} 大师会诊`,
+      '生成失败',
+      `<div class="guru-state">大师会诊失败：${escapeHtml(e.message || e)}<br><br>请检查后端是否已部署新版 worker.js，并确认 Cloudflare Worker 已配置 ANTHROPIC_API_KEY。</div>`
+    );
+  } finally {
+    state.guruGenerating = false;
+  }
+}
+
+function addStock(symRaw) {
+  const sym = String(symRaw || '').trim().toUpperCase();
+  if (!sym) return false;
+  if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) {
+    alert('代码格式不对：' + sym);
+    return false;
+  }
+  if (state.watchlist.includes(sym)) {
+    alert(sym + ' 已经在自选列表中');
+    return false;
+  }
+  state.watchlist.push(sym);
+  saveWatchlist(state.watchlist);
+  if (state.currentSnapshot && state.currentSnapshot.stocks) {
+    if (!state.currentSnapshot.stocks[sym]) {
+      state.currentSnapshot.stocks[sym] = {
+        price: 0, change: 0, changePct: 0,
+        ma5: null, ma60: null, ma20: null,
+        closes: [],
+        events: [],
+        eval: '*已添加。点右上"刷新数据"拉取实时行情，或在演示模式下显示为占位。*'
+      };
+    }
+    renderStocks(state.currentSnapshot.stocks);
+  }
+  return true;
+}
+
+function removeStock(sym) {
+  if (!confirm(`确认从自选列表移除 ${sym} ？`)) return;
+  state.watchlist = state.watchlist.filter(s => s !== sym);
+  state.expandedStocks.delete(sym);
+  saveWatchlist(state.watchlist);
+  if (state.currentSnapshot) renderStocks(state.currentSnapshot.stocks);
+}
+
+// ==========================================================================
+// 启动
+// ==========================================================================
+document.getElementById('add-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = document.getElementById('add-input');
+  if (addStock(input.value)) {
+    input.value = '';
+  }
+});
+document.getElementById('refresh-btn').addEventListener('click', refreshData);
+document.getElementById('ai-btn').addEventListener('click', generateAi);
+document.getElementById('guru-close').addEventListener('click', closeGuruModal);
+document.querySelectorAll('[data-guru-close]').forEach(el => el.addEventListener('click', closeGuruModal));
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('guru-modal').hidden) closeGuruModal();
+});
+
+// 视图切换
+document.getElementById('view-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-view]');
+  if (btn) setStockView(btn.dataset.view);
+});
+
+// 大师会诊搜索框（VIX 旁边那个）
+document.getElementById('guru-search-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const inp = document.getElementById('guru-search-input');
+  const sym = (inp.value || '').trim().toUpperCase();
+  if (!sym) return;
+  if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) {
+    alert('代码格式不对：' + sym);
+    return;
+  }
+  // 如果当前 snapshot 没有这只股，先尝试实时拉取后会诊；否则直接会诊
+  if (state.currentSnapshot && state.currentSnapshot.stocks && state.currentSnapshot.stocks[sym]) {
+    generateGuruAnalysis(sym);
+  } else {
+    const base = localStorage.getItem('sb_api_base');
+    if (!base) {
+      alert('请先在 ⚙ 设置中配置后端地址，才能会诊自选股以外的股票。');
+      return;
+    }
+    // 临时拉一下这只股票的数据，放入 currentSnapshot，再会诊
+    const btn = document.querySelector('#guru-search-form .guru-search-btn');
+    if (btn) { btn.textContent = '拉取中…'; btn.disabled = true; }
+    fetchBatch([sym]).then(data => {
+      const d = data[sym.toUpperCase()];
+      if (!d || d.error) throw new Error(d?.error || '数据拉取失败：' + sym);
+      if (!state.currentSnapshot) {
+        state.currentSnapshot = { date: todayStr(), indices: [], vix: DEMO_DATA.vix, sectors: DEMO_DATA.sectors, stocks: {}, news: DEMO_DATA.news, strategy: DEMO_DATA.strategy, tips: DEMO_DATA.tips };
+      }
+      state.currentSnapshot.stocks[sym] = {
+        price: d.price, change: d.change, changePct: d.changePct,
+        ma5: d.ma5, ma60: d.ma60, ma20: d.ma20, closes: d.closes || [],
+        events: [], eval: buildEvalText(d), longName: d.longName || sym,
+      };
+      generateGuruAnalysis(sym);
+    }).catch(err => {
+      alert('拉取 ' + sym + ' 数据失败：' + (err.message || err) + '\n请先点"刷新数据"，或检查后端地址。');
+    }).finally(() => {
+      if (btn) { btn.textContent = '会诊'; btn.disabled = false; }
+    });
+  }
+  inp.value = '';
+});
+
+// 应用初始视图切换状态
+document.querySelectorAll('#view-toggle button').forEach(btn => {
+  btn.classList.toggle('active', btn.dataset.view === state.stockView);
+});
+
+function openSettings() {
+  const histCount = Object.keys(state.history).length;
+  const aiCount = Object.keys(state.aiCache).length;
+  const guruCount = Object.keys(state.guruCache).length;
+  const currentApi = localStorage.getItem('sb_api_base') || '(未设置)';
+  const msg = `当前后端地址：\n${currentApi}\n\n本地存储：\n· 自选股：${state.watchlist.length} 只\n· 历史快照：${histCount} 份\n· AI 评价缓存：${aiCount} 天\n· 大师会诊缓存：${guruCount} 份\n\n请选择操作：\n1. 设置 / 修改后端地址\n2. 清空历史快照\n3. 恢复默认自选股\n4. 清空 AI 评价缓存\n5. 清空大师会诊缓存\n6. 清空所有本地数据\n7. 取消\n\n请输入 1 - 7：`;
+  const choice = prompt(msg, '7');
+  if (choice === '1') {
+    const newUrl = prompt('请输入 Cloudflare Worker 地址：\n格式示例：https://stockbrief-api.your-name.workers.dev\n\n（在 Cloudflare 部署 worker.js 后会看到这个地址）', currentApi !== '(未设置)' ? currentApi : 'https://');
+    if (newUrl && newUrl !== 'https://') {
+      const cleaned = newUrl.trim().replace(/\/$/, '');
+      if (!/^https?:\/\//.test(cleaned)) {
+        alert('地址必须以 https:// 开头');
+        return;
+      }
+      localStorage.setItem('sb_api_base', cleaned);
+      alert('已保存。现在可以点"刷新数据"拉取实时行情了。');
+    }
+  }
+  else if (choice === '2') { state.history = {}; saveHistory({}); loadDemo(); }
+  else if (choice === '3') { state.watchlist = [...DEFAULT_WATCHLIST]; saveWatchlist(state.watchlist); loadDemo(); }
+  else if (choice === '4') {
+    if (confirm('清空 AI 评价缓存？\n（不会消耗 AI 额度，只是删除本地缓存。下次想看 AI 评价需要重新生成）')) {
+      state.aiCache = {};
+      localStorage.removeItem(STORAGE.AI_CACHE);
+      if (state.currentSnapshot) {
+        // 移除 AI 标记
+        for (const sym of Object.keys(state.currentSnapshot.stocks || {})) {
+          state.currentSnapshot.stocks[sym].evalIsAi = false;
+        }
+        renderAll(state.currentSnapshot);
+      }
+      hideAiBanner();
+      document.getElementById('ai-btn').classList.remove('has-ai');
+      alert('AI 缓存已清空');
+    }
+  }
+  else if (choice === '5') {
+    if (confirm('清空大师会诊缓存？\n（不会影响自选股和历史快照。）')) {
+      state.guruCache = {};
+      localStorage.removeItem(STORAGE.GURU_CACHE);
+      alert('大师会诊缓存已清空');
+    }
+  }
+  else if (choice === '6') {
+    if (confirm('确认清空所有本地数据（自选股、历史、AI 缓存、大师会诊缓存、后端地址）？')) {
+      localStorage.removeItem(STORAGE.WATCHLIST);
+      localStorage.removeItem(STORAGE.HISTORY);
+      localStorage.removeItem(STORAGE.AI_CACHE);
+      localStorage.removeItem(STORAGE.GURU_CACHE);
+      localStorage.removeItem('sb_api_base');
+      location.reload();
+    }
+  }
+}
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+
+// 启动：如果还没配置 API 地址，提示用户
+function checkApiConfig() {
+  if (!localStorage.getItem('sb_api_base')) {
+    // 不强制弹窗——只在状态栏提示
+    setStatus('demo', '演示模式 · 点 ⚙ 配置后端以启用实时数据');
+  }
+}
+
+// 启动：直接加载演示数据
+loadDemo();
+checkApiConfig();
+</script>
+</body>
+</html>
