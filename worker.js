@@ -105,14 +105,45 @@ async function handleBatch(symbols) {
 // ==========================================================================
 // AI 生成端点（前端用）
 // ==========================================================================
-const LIMITS      = { DAILY_GLOBAL: 30, PER_IP_DAILY: 4  };   // ✨ AI评价 限额
-const GURU_LIMITS = { DAILY_GLOBAL: 60, PER_IP_DAILY: 5  };   // 🔮 大师会诊 限额（每人每天 5 次）
+// ── 访问码配置 ──────────────────────────────────────────────────────────────
+// 访问码以 HMAC-SHA256 形式验证，避免明文对比被轻易破解
+// 前端传来的是 HMAC(fingerprint + date, ACCESS_CODE_RAW)
+// 这里的 raw 值只在 Worker 里存在，前端永远看不到
+const ACCESS_CODE_RAW = '64218';
+
+// 基础限额（无访问码）
+const LIMITS      = { DAILY_GLOBAL: 60, PER_IP_DAILY: 2 };    // ✨ AI评价
+const GURU_LIMITS = { DAILY_GLOBAL: 80, PER_IP_DAILY: 2 };    // 🔮 大师会诊
+
+// 访问码解锁后的提升限额
+const LIMITS_VIP      = { PER_IP_DAILY: 8  };   // AI评价
+const GURU_LIMITS_VIP = { PER_IP_DAILY: 10 };   // 大师会诊
+
 const COUNTERS = new Map();
 function todayKey() { return new Date().toISOString().slice(0, 10); }
+
 async function hashIp(ip) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip));
   return Array.from(new Uint8Array(buf)).slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+// 验证前端传来的 access_token（HMAC-SHA256）
+async function verifyAccessToken(token) {
+  if (!token || typeof token !== 'string') return false;
+  try {
+    // 前端用 HMAC(date_string, ACCESS_CODE_RAW) 生成 token
+    const today = todayKey();
+    const keyData = new TextEncoder().encode(ACCESS_CODE_RAW);
+    const msgData = new TextEncoder().encode(today);
+    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, msgData);
+    const expected = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return token === expected;
+  } catch (e) {
+    return false;
+  }
+}
+
 function getCount(key) { return COUNTERS.get(key) || 0; }
 function incrCount(key) { COUNTERS.set(key, (COUNTERS.get(key) || 0) + 1); }
 function cleanupCounters() {
@@ -123,6 +154,7 @@ function cleanupCounters() {
     if (!key.endsWith(today) && !key.endsWith(yesterday)) COUNTERS.delete(key);
   }
 }
+
 async function checkRateLimit(request) {
   const today = todayKey();
   const globalKey = `global:${today}`;
@@ -130,18 +162,34 @@ async function checkRateLimit(request) {
     return { ok: false, reason: `今日全局 AI 调用次数已达上限。`, remaining: { global: 0, ip: null } };
   }
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const ipKey = `ip:${await hashIp(ip)}:${today}`;
-  if (getCount(ipKey) >= LIMITS.PER_IP_DAILY) {
-    return { ok: false, reason: `你这个 IP 今日已调用 ${LIMITS.PER_IP_DAILY} 次。`, remaining: { global: LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: 0 } };
+  const ipHash = await hashIp(ip);
+  const ipKey = `ip:${ipHash}:${today}`;
+
+  // 检查访问码（从请求体提取；handleAiGenerate 会先 clone body）
+  let isVip = false;
+  try {
+    const cloned = request.clone();
+    const body = await cloned.json();
+    isVip = await verifyAccessToken(body?.access_token);
+  } catch (e) {}
+  const perIpLimit = isVip ? LIMITS_VIP.PER_IP_DAILY : LIMITS.PER_IP_DAILY;
+
+  if (getCount(ipKey) >= perIpLimit) {
+    return {
+      ok: false,
+      reason: `您已超过每日使用 AI API 限额，获取更多限额请输入访问码`,
+      remaining: { global: LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: 0 },
+      needCode: true
+    };
   }
   return {
     ok: true,
     consume: () => { incrCount(globalKey); incrCount(ipKey); cleanupCounters(); },
-    remaining: { global: LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: LIMITS.PER_IP_DAILY - getCount(ipKey) }
+    remaining: { global: LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: perIpLimit - getCount(ipKey) }
   };
 }
 
-// 大师会诊专用限流（每人每天 5 次）
+// 大师会诊专用限流（每人每天 2 次，访问码后 10 次）
 async function checkGuruRateLimit(request) {
   const today = todayKey();
   const globalKey = `guru_global:${today}`;
@@ -149,12 +197,23 @@ async function checkGuruRateLimit(request) {
     return { ok: false, reason: `今日大师会诊全局次数已达上限，请明天再试。`, remaining: { global: 0, ip: null, ipLimit: GURU_LIMITS.PER_IP_DAILY } };
   }
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const ipKey = `guru_ip:${await hashIp(ip)}:${today}`;
-  if (getCount(ipKey) >= GURU_LIMITS.PER_IP_DAILY) {
+  const ipHash = await hashIp(ip);
+  const ipKey = `guru_ip:${ipHash}:${today}`;
+
+  let isVip = false;
+  try {
+    const cloned = request.clone();
+    const body = await cloned.json();
+    isVip = await verifyAccessToken(body?.access_token);
+  } catch (e) {}
+  const perIpLimit = isVip ? GURU_LIMITS_VIP.PER_IP_DAILY : GURU_LIMITS.PER_IP_DAILY;
+
+  if (getCount(ipKey) >= perIpLimit) {
     return {
       ok: false,
-      reason: `大师会诊每人每天限 ${GURU_LIMITS.PER_IP_DAILY} 次，你今日已用完。明天 UTC 0 点重置。`,
-      remaining: { global: GURU_LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: 0, ipLimit: GURU_LIMITS.PER_IP_DAILY }
+      reason: `您已超过每日使用 AI API 限额，获取更多限额请输入访问码`,
+      remaining: { global: GURU_LIMITS.DAILY_GLOBAL - getCount(globalKey), ip: 0, ipLimit: perIpLimit },
+      needCode: true
     };
   }
   const used = getCount(ipKey);
@@ -163,8 +222,8 @@ async function checkGuruRateLimit(request) {
     consume: () => { incrCount(globalKey); incrCount(ipKey); cleanupCounters(); },
     remaining: {
       global: GURU_LIMITS.DAILY_GLOBAL - getCount(globalKey),
-      ip: GURU_LIMITS.PER_IP_DAILY - used,
-      ipLimit: GURU_LIMITS.PER_IP_DAILY
+      ip: perIpLimit - used,
+      ipLimit: perIpLimit
     }
   };
 }
@@ -390,11 +449,18 @@ async function callAnthropic(promptOrMessages, apiKey, {
 async function handleAiGenerate(request, env) {
   const apiKey = env?.ANTHROPIC_API_KEY;
   if (!apiKey) return jsonResponse({ error: '后端未配置 ANTHROPIC_API_KEY。' }, 500);
-  const limit = await checkRateLimit(request);
-  if (!limit.ok) return jsonResponse({ error: limit.reason, remaining: limit.remaining }, 429);
   let body;
   try { body = await request.json(); }
   catch (e) { return jsonResponse({ error: '请求体 JSON 解析失败' }, 400); }
+  // 重建含 body 的 Request，供 checkRateLimit 克隆读取 access_token
+  const reqForLimit = new Request(request.url, {
+    method: request.method, headers: request.headers,
+    body: JSON.stringify(body),
+  });
+  const limit = await checkRateLimit(reqForLimit);
+  if (!limit.ok) {
+    return jsonResponse({ error: limit.reason, remaining: limit.remaining, needCode: !!limit.needCode }, 429);
+  }
   const snapshot = body?.snapshot;
   if (!snapshot || !snapshot.stocks || !snapshot.indices) return jsonResponse({ error: '请求体缺少 snapshot' }, 400);
   try {
@@ -414,12 +480,18 @@ async function handleAiGenerate(request, env) {
 async function handleGuruAnalysis(request, env) {
   const apiKey = env?.ANTHROPIC_API_KEY;
   if (!apiKey) return jsonResponse({ error: '后端未配置 ANTHROPIC_API_KEY。' }, 500);
-  // 使用大师会诊专属限流（每人每天 5 次）
-  const limit = await checkGuruRateLimit(request);
-  if (!limit.ok) return jsonResponse({ error: limit.reason, remaining: limit.remaining }, 429);
   let body;
   try { body = await request.json(); }
   catch (e) { return jsonResponse({ error: '请求体 JSON 解析失败' }, 400); }
+  // 重建含 body 的 Request，供 checkGuruRateLimit 克隆读取 access_token
+  const reqForLimit = new Request(request.url, {
+    method: request.method, headers: request.headers,
+    body: JSON.stringify(body),
+  });
+  const limit = await checkGuruRateLimit(reqForLimit);
+  if (!limit.ok) {
+    return jsonResponse({ error: limit.reason, remaining: limit.remaining, needCode: !!limit.needCode }, 429);
+  }
 
   const symbol = String(body?.symbol || '').trim().toUpperCase();
   const snapshot = body?.snapshot;
@@ -437,13 +509,12 @@ async function handleGuruAnalysis(request, env) {
       throw new Error('AI 返回缺少 gurus 分析卡片');
     }
     limit.consume();
-    // remaining.ip 已在 consume 之前读，需减 1
     const ipAfter = Math.max(0, limit.remaining.ip - 1);
     return jsonResponse({
       ok: true,
       data: { ...parsed, symbol, source: 'virattt/ai-hedge-fund inspired multi-agent styles' },
       usage,
-      remaining: { ip: ipAfter, ipLimit: GURU_LIMITS.PER_IP_DAILY },
+      remaining: { ip: ipAfter, ipLimit: limit.remaining.ipLimit },
       generatedAt: new Date().toISOString(),
     });
   } catch (e) {
@@ -906,7 +977,7 @@ function buildEmailHtml(emailData, aiContent, emailType) {
       <h2 style="font-size:18px;color:#0f172a;margin:22px 0 4px;">自选股</h2>
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">${stocksHtml}</table>
       ${extraHtml}
-      <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;color:#94A3B8;font-size:11px;line-height:1.8;">🐼 <strong style="color:#C04018;">Jerry Fang 投研</strong> · AI-Powered Stock Dashboard<br>Built with Claude AI · Cloudflare Workers · Yahoo Finance<br>© 2025 Jerry Fang · 行情仅供参考，非投资建议</div>
+      <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;color:#94A3B8;font-size:11px;line-height:1.8;">🐼 <strong style="color:#C04018;">Jerry Fang 投研</strong> · AI-Powered Stock Dashboard<br>Built with Claude AI · Cloudflare Workers · Yahoo Finance<br>© 2026 Jerry Fang · 行情仅供参考，非投资建议</div>
     </div>
   </div>
 </body>
