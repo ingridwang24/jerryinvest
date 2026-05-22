@@ -41,8 +41,9 @@ worker.js     后端 Worker，部署到 Cloudflare
 
 ## 部署方法
 
-### 1. 前端（Netlify）
+### 1. 前端（Netlify / Github Pages）
 把 `index.html` 拖拽上传到 Netlify，或连接本仓库手动触发部署。
+或者直接在 Github 内发布Pages
 
 ### 2. 后端（Cloudflare Workers）
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
