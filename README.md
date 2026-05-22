@@ -21,7 +21,7 @@
 ## 技术栈
 
 ```
-前端         Netlify 托管的静态 HTML（无框架）
+前端         Netlify 托管的静态 HTML/ Github Pages （无框架）
 后端         Cloudflare Workers（无服务器）
 数据源       Yahoo Finance API
 AI 模型      Claude Sonnet（评价/会诊）· Claude Haiku（推送）
@@ -42,7 +42,7 @@ worker.js     后端 Worker，部署到 Cloudflare
 ## 部署方法
 
 ### 1. 前端（Netlify / Github Pages）
-把 `index.html` 拖拽上传到 Netlify，或连接本仓库手动触发部署。
+把 `index.html` 拖拽上传到 Netlify，或连接本仓库手动触发部署。每月限制上传次数，每月上传不要超过12次。
 或者直接在 Github 内发布Pages
 
 ### 2. 后端（Cloudflare Workers）
