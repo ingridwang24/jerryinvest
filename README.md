@@ -94,4 +94,4 @@ GET  /api/preview-markdown?type=weekly    预览推送内容
 
 ---
 
-© 2025 Jerry Fang · All rights reserved
+© 2026 Jerry Fang · All rights reserved
