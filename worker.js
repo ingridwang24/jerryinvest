@@ -109,7 +109,7 @@ async function handleBatch(symbols) {
 // 访问码以 HMAC-SHA256 形式验证，避免明文对比被轻易破解
 // 前端传来的是 HMAC(fingerprint + date, ACCESS_CODE_RAW)
 // 这里的 raw 值只在 Worker 里存在，前端永远看不到
-const ACCESS_CODE_RAW = '64218';
+const ACCESS_CODE_RAW = 'XXX';
 
 // 基础限额（无访问码）
 const LIMITS      = { DAILY_GLOBAL: 60, PER_IP_DAILY: 2 };    // ✨ AI评价
