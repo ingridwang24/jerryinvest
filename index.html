@@ -2384,7 +2384,7 @@ async function refreshData() {
     console.error(e);
     setStatus('demo', '拉取失败 → 回退到演示数据');
     loadDemo();
-    const apiBase = localStorage.getItem('sb_api_base');
+    const apiBase = getApiBase();
     let hint = '';
     if (!apiBase) {
       hint = '\n\n你还没设置后端地址。\n点右上角 ⚙ → 选 1 → 填入你的 Cloudflare Worker 地址。';
@@ -2440,7 +2440,7 @@ async function generateAi() {
     alert('请先点"刷新数据"拉取实时行情，再生成 AI 评价。');
     return;
   }
-  const base = localStorage.getItem('sb_api_base');
+  const base = getApiBase();
   if (!base) {
     alert('请先在 ⚙ 设置中配置后端地址。');
     return;
@@ -2658,7 +2658,7 @@ async function generateGuruAnalysis(symRaw, force=false) {
     alert('请先刷新或加载包含这只股票的数据。');
     return;
   }
-  const base = localStorage.getItem('sb_api_base');
+  const base = getApiBase();
   if (!base) {
     alert('请先在 ⚙ 设置中配置后端地址。');
     return;
@@ -2874,7 +2874,7 @@ document.getElementById('guru-search-form').addEventListener('submit', e => {
   if (state.currentSnapshot && state.currentSnapshot.stocks && state.currentSnapshot.stocks[sym]) {
     generateGuruAnalysis(sym);
   } else {
-    const base = localStorage.getItem('sb_api_base');
+    const base = getApiBase();
     if (!base) {
       alert('请先在 ⚙ 设置中配置后端地址，才能会诊自选股以外的股票。');
       return;
@@ -2967,7 +2967,7 @@ document.getElementById('settings-btn').addEventListener('click', openSettings);
 
 // 启动：如果还没配置 API 地址，提示用户
 function checkApiConfig() {
-  if (!localStorage.getItem('sb_api_base')) {
+  if (!getApiBase()) {
     // 不强制弹窗——只在状态栏提示
     setStatus('demo', '演示模式 · 点 ⚙ 配置后端以启用实时数据');
   }
