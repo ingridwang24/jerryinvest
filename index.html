@@ -1717,7 +1717,7 @@ let state = {
 // ⚠️ 重要：把 API_BASE 改成你部署的 Cloudflare Worker 地址
 // 比如：'https://stockbrief-api.your-name.workers.dev'
 // 部署说明见 部署说明.md
-const API_BASE = localStorage.getItem('sb_api_base') || '';
+const API_BASE = localStorage.getItem('sb_api_base') || 'https://jerryinvest.ingridwang24.workers.dev';
 
 function getApiBase() {
   return API_BASE || localStorage.getItem('sb_api_base') || '';

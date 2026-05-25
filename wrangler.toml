@@ -1,0 +1,13 @@
+name = "jerryinvest"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+[triggers]
+crons = [
+  "15 13 * * 1-5",
+  "30 14 * * 1-5",
+  "30 16 * * 1-5",
+  "30 18 * * 1-5",
+  "30 4  * * 5"
+]
